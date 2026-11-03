@@ -139,7 +139,7 @@ H 之後把 `/tmp/extra` 用 `.pth` 放進 `/opt/venv` 的 `sys.path`，`import 
 - 版本衝突會在解析階段就失敗，不會裝出半套內容，回傳碼非 0，所以 `install-extra.sh` 會走到它的失敗路徑（寫 `FAILED`、`exit 0`、桌面通知）。錯誤訊息要完整放進 `FAILED` 摘要，讓管理者看得到是哪個套件跟 constraints 衝突
 - 只測了「直接要求」和「同一份清單裡的兩個要求互相衝突」；沒有測某個第三方套件的相依範圍跟 base 衝突的情形（解析器的行為相同，預期同樣失敗）
 - uv 要出現在最終映像檔（spec §9 目前只有 builder 階段有 uv）；不想帶 uv 就用 pip（C），浪費的 MB 較多
-- 沒有驗證 `--require-hashes`（requirements 帶 `--hash=` 的情況）在這兩種指令下的行為；Task 3 寫腳本時要補測
+- `--require-hashes` 已在上面的「PIP_CMD 的實測」驗證（完整閉包的 hash 清單用 uv 和 pip 都成功）。仍未驗證的只有「濾掉基本套件之後的 hash 清單」搭配 `--require-hashes` 的行為，Task 3 寫腳本時要補測
 - 測試用的 venv 路徑是 `/opt/venv`，不是 spec 寫的 `/opt/jupyter/venv`，不影響結論
 
 ---
