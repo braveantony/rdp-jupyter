@@ -252,6 +252,44 @@ H 之後把 `/tmp/extra` 用 `.pth` 放進 `/opt/venv` 的 `sys.path`，`import 
 
 ---
 
+## 6. 映像檔大小（Task 9）
+
+**問題**：spec §9 的上限是 1.2 GB（`podman image inspect --format '{{.Size}}'` ≤ 1200000000）。第一次建置就超過，要找出最大的部分，並依 §9 評估拿掉 Mesa/LLVM。
+
+**做法**：`bash test/build.sh`（rootless podman），用 `podman history` 看每一層，在映像檔裡用 `du` 和 `dpkg-query -W -f='${Installed-Size}'` 看目錄與套件大小，用 `apt-cache rdepends --installed` 找是誰拉進來的。本機沒有 `dive`，改用這幾個指令。
+
+**結果**（第一次建置：1,388,949,848 bytes，超過約 189 MB）：
+
+| 層 | 大小 |
+|---|---|
+| debian:trixie-slim | 81 MB |
+| apt（xrdp、Xorg、GTK、字型、python3 等） | 581 MB |
+| venv（`/opt/jupyter/venv`） | 381 MB |
+| `/opt/JupyterLab`（已拿掉 env_installer 和多餘的 locales） | 280 MB |
+| uv（靜態執行檔，0.13.7） | 42 MB |
+| 其他（locale、腳本） | 約 3 MB |
+
+- 最大的 Debian 套件：`libllvm19` 127 MB、`fonts-noto-cjk` 91 MB、`mesa-libgallium` 42 MB、`libgtk-3-common` 31 MB、`libz3-4` 27 MB、`libgs10` 22 MB
+- Mesa/LLVM 的來源：`libgbm1`、`libegl-mesa0`、`libglx-mesa0` 都硬性依賴 `mesa-libgallium`，它再依賴 `libllvm19`，`libllvm19` 再依賴 `libz3-4`；這幾個是 `xserver-xorg-core` 的 Depends 拉進來的。`libgl1-mesa-dri` 由 `libglx-mesa0` 拉進來。合計約 196 MB
+- venv 比 spec 估計的大：`__pycache__`（`compileall`）共 73 MB；較大的套件是 pandas 38 MB、jedi 34 MB、babel 33 MB、fontTools 29 MB、matplotlib 29 MB、numpy 加 numpy.libs 54 MB、jupyterlab 25 MB、debugpy 22 MB、pip 14 MB
+- uv 不在 spec 的預算表裡（Task 4 之後才決定放進最終映像檔）
+- 另一條可以省的路（這次沒有動）：`openbox` → `libimlib2t64` → `libspectre1` → `libgs10`，再帶進 `poppler-data`、`fonts-urw-base35`，約 50 MB
+
+**處理**：在最終階段 `apt-get install` 之後，用 `dpkg --purge --force-depends` 拿掉 `libgl1-mesa-dri`、`mesa-libgallium`、`libllvm19`、`libz3-4`。結果 1,190,192,579 bytes，通過上限，**只剩約 9.8 MB 的餘裕**。
+
+驗證：
+
+- `ldd /opt/JupyterLab/jupyterlab-desktop` 沒有 `not found`（`libgbm.so.1` 本身只連結 `libdrm`、`libexpat`，不直接連結 libgallium）
+- 用 `localhost/rdp-vscode-e2e-client:dev` 從本機 RDP 登入（`RDP_PASSWORD=bigred`），出現 JupyterLab 的 Launcher（繁體中文介面，狀態列 `Mem: 85.89 / 2048.00 MB`），Xorg 和 Electron 都正常。Xorg 的 log 照常載入 `glx` 模組；Electron 用自己帶的 SwiftShader
+- `test/image/smoke.test.sh`、`test/image/notebook.test.sh`、`test/unit/*.test.sh` 全部通過
+
+**對設計的影響**：
+
+- 最終映像檔裡 apt 的相依關係是「壞的」：之後不能在這個映像檔上 `apt-get install`，要改 Dockerfile 重建。執行時不用 apt（`install-extra.sh` 用 uv），所以不影響功能
+- 餘裕只有約 10 MB，任何套件升級都可能超過。要再省，依代價由低到高：openbox 的 imlib2 → ghostscript 那條（約 50 MB，同樣要 `--force-depends`）；拿掉 `pip`（14 MB，但使用者就不能 `%pip install --user`）；不做 `compileall`（73 MB，但 venv 是唯讀的，每次 import 都要重新編譯）
+
+---
+
 ## 清理
 
 - `kubectl delete ns rdp-jupyter-spike` 已執行，`kubectl get ns` 已沒有該 namespace
