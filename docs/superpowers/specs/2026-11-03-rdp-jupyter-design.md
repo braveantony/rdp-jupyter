@@ -126,7 +126,7 @@
 | `startupMode` | `new-local-session` |
 | `checkForUpdatesAutomatically`、`installUpdatesAutomatically`、`notifyOnBundledEnvUpdates`、`showNewsFeed` | `false` |
 | `defaultWorkingDirectory` | `$HOME` |
-| `serverArgs` | `--MappingKernelManager.cull_idle_timeout=<KERNEL_CULL_IDLE_TIMEOUT> --MappingKernelManager.cull_interval=300`（F2：只能從這裡傳） |
+| `serverArgs` | `--MappingKernelManager.cull_idle_timeout=<KERNEL_CULL_IDLE_TIMEOUT> --MappingKernelManager.cull_interval=300 --ResourceUseDisplay.mem_limit=<KERNEL_MEMORY_LIMIT 換算成 bytes>`（F2：只能從這裡傳） |
 
 ### 語系
 
