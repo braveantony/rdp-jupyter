@@ -53,7 +53,7 @@
 
 | 項目 | 結果 |
 |---|---|
-| 透過 xrdp 顯示 | 正常，不用加 `--no-sandbox` |
+| 透過 xrdp 顯示 | 本機 podman 正常；但在 tk8s（CRI-O、RuntimeDefault seccomp）上 Electron sandbox 起不來（`unshare` 回 ENOSYS，「No usable sandbox!」），見第 6 節「Electron sandbox」 |
 | 執行 notebook | pandas、matplotlib、對外連線都正常 |
 | 只用 `--python-path` 指定環境 | 不夠，會出現「No default environment found」；要寫 `settings.json` 的 `pythonPath` |
 | 上游內建的 conda 環境 | 解壓縮後要用環境自己的 python 執行 `conda-unpack`，不然 kernel 路徑錯誤 |
@@ -155,6 +155,14 @@ entrypoint 依 `JUPYTER_LOCALE` 產生 `/opt/jupyter/venv/share/jupyter/lab/sett
   2. `build/out/main/server.js`：在 `execOptions.env` 加上 `JUPYTER_TOKEN: this._info.token`（F7）
 - patch 用腳本 `images/rdp-jupyter/patches/token-env.sh` 執行：每處修改都先確認原文剛好出現一次，否則讓建置失敗。升級上游時，patch 失效會在建置階段就被擋下
 - 文件記錄這個 patch，之後可以送回上游
+
+### Electron sandbox（Task 0 結果，使用者決定）
+
+- tk8s 的 RuntimeDefault seccomp 擋掉 `unshare`，Chromium 的 namespace sandbox 無法啟動；JupyterLab Desktop 的套件沒有 `chrome-sandbox`，就算有，`allowPrivilegeEscalation: false`（NoNewPrivs）也會讓 SUID 失效
+- 決定：`startwm.sh` 啟動 `jupyterlab-desktop` 時加 `--no-sandbox`。Pod 維持 RuntimeDefault seccomp，符合 Pod Security baseline（A8）
+- 理由：這份威脅模型的邊界是 UID。renderer 被攻破後拿到的是使用者自己的 UID，而使用者本來就能透過 kernel 以這個 UID 執行任意程式；帳號之間的隔離（上表）不受影響
+- 不採用：seccomp `Unconfined`（所有 kernel 失去 syscall 過濾、違反 A8）；Localhost seccomp profile（要改每個節點）
+- 代價：惡意 notebook 輸出若攻破 renderer，可以用該使用者的權限做事，等同使用者自己執行程式
 
 ### 其他
 
@@ -318,4 +326,4 @@ rdp-jupyter/
 | 斷線的桌面佔用名額 | 新使用者被 `MAX_SESSIONS` 擋下 | 文件說明；`DISCONNECTED_TIMEOUT` 可以調短 |
 | JupyterLab Desktop 更新慢或停止維護 | Chromium 漏洞沒有修補 | 每月檢查；trivy 掃描；最壞情況改用 Firefox kiosk（spike 時評估過的 A 方案） |
 | PyPI 連不到 | 額外套件沒裝上 | 不影響 Pod 啟動；桌面跳出通知；可以設定 `PIP_INDEX_URL` |
-| Electron sandbox 在 tk8s 上不能用 | 程式起不來 | Task 0 確認；真的不行才加 `--no-sandbox`，並記錄原因 |
+| Electron sandbox 在 tk8s 上不能用 | 程式起不來 | Task 0 已確認不能用；改加 `--no-sandbox`，理由見第 6 節 |

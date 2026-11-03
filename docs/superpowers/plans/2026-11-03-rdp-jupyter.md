@@ -277,7 +277,7 @@ RDP_JUPYTER_SESSION_ENV=/nonexistent GEN=$GEN bash -c '. $GEN; echo alive' | gre
 - Consumes: Task 2 的 `session.env`、Task 5 的 `desktop-settings.sh`
 - Produces:
   - `notify-extra.sh`：`$EXTRA_DIR/FAILED` 存在時，以 `${XMESSAGE:-xmessage} -center` 顯示「額外套件安裝失敗」加上檔案內容；不存在就什麼都不做
-  - `startwm.sh`：沿用 rdp-vscode 的 session 目錄規則（`/tmp/sess/<display>.<uid>`、拒絕不屬於自己的目錄）、dbus、trap 清理（TERM → 等 10 秒 → KILL）。改動的部分：`XDG_CONFIG_HOME=$S/xdg`；`JLAB_DESKTOP_CONFIG_DIR=$HOME/.jupyter`；寫入 `$S/xdg/jupyterlab-desktop/settings.json`；背景執行 `notify-extra.sh`；直接執行 `/opt/JupyterLab/jupyterlab-desktop`（背景執行再 `wait`）
+  - `startwm.sh`：沿用 rdp-vscode 的 session 目錄規則（`/tmp/sess/<display>.<uid>`、拒絕不屬於自己的目錄）、dbus、trap 清理（TERM → 等 10 秒 → KILL）。改動的部分：`XDG_CONFIG_HOME=$S/xdg`；`JLAB_DESKTOP_CONFIG_DIR=$HOME/.jupyter`；寫入 `$S/xdg/jupyterlab-desktop/settings.json`；背景執行 `notify-extra.sh`；直接執行 `/opt/JupyterLab/jupyterlab-desktop --no-sandbox`（背景執行再 `wait`；`--no-sandbox` 的理由見 spec 第 6 節）
 
 - [ ] **Step 1: 寫 `notify-extra.test.sh`**：用假的 `XMESSAGE`（寫入參數到檔案），斷言 `FAILED` 存在時有呼叫、參數含檔案內容；不存在時沒呼叫
 - [ ] **Step 2: 執行**，預期 FAIL；**Step 3: 實作**；**Step 4: 執行**，預期 PASS
