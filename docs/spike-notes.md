@@ -113,7 +113,31 @@ H 之後把 `/tmp/extra` 用 `.pth` 放進 `/opt/venv` 的 `sys.path`，`import 
 - `--target` 不看已經安裝的套件，不管是 uv 或 pip、有沒有 `--python`、有沒有 `-c`，只要「管理者列的套件，或它的相依套件」包含基本 venv 已有的套件，就會再裝一份。constraints 只固定版本，不會讓它略過
 - 浪費量：uv 在 pandas 加 numpy 的情況下 75 MB（G1：182 MB 裡的 45+30）；pip 123 MB（G2）。不依賴基本套件的（E）沒有浪費
 - 重複的那份是死重量：`.pth` 把 extra 放在基本 venv `site-packages` 之後（見第 3 節的 `sys.path`），所以 import 時會用基本 venv 的版本；constraints 確保版本一樣
-- **PIP_CMD 建議**：`uv pip install --python /opt/venv/bin/python --target "$tmpdir" -c <基本 venv 的 freeze> -r requirements.txt`。uv 比 pip 小（182 vs. 251 MB），`--python` 在這個情況下對結果沒有影響但能讓 uv 明確指向基本 venv，可以保留。如果要連 75 MB 都省，改用 H 的「compile、濾掉、`--no-deps`」；它多一步，也多一個「濾掉的名稱比對」要維護，建議第一版接受重複、在 docs 註明
+- **PIP_CMD 建議**：`uv pip install --python /opt/venv/bin/python --target "$tmpdir" -c <基本 venv 的 freeze> -r requirements.txt`。uv 比 pip 小（182 vs. 251 MB），`--python` 在這個情況下對結果沒有影響但能讓 uv 明確指向基本 venv，可以保留。如果要連 75 MB 都省，改用 H 的「compile、濾掉、`--no-deps`」；它多一步，也多一個「濾掉的名稱比對」要維護，建議第一版接受重複、在 docs 註明。下面「PIP_CMD 的實測」用這個完整形式（`-c ... -r requirements.txt`）驗證過
+
+### PIP_CMD 的實測（`-c <freeze> -r requirements.txt`）
+
+同一個 venv（base 是 numpy 2.5.4、pandas 3.1.0、python-dateutil 4.0.0、tzdata 2026.6），`$UV pip install --python /opt/venv/bin/python --target /tmp/extra -c /tmp/base.txt ...`：
+
+| 情況 | 指令（差異部分） | 結果 |
+|---|---|---|
+| 普通 requirements.txt（`requests`、`seaborn`） | `-r /tmp/req-plain.txt` | rc=0，`/tmp/extra` 185 MB，有 `numpy`、`pandas`、`requests`、`seaborn`（一樣會重複裝 pandas、numpy） |
+| 有 hash 的 requirements.txt | 先 `uv pip compile /tmp/req-plain.txt --python /opt/venv/bin/python -c /tmp/base.txt --generate-hashes -o /tmp/req-hash.txt`（rc=0，728 行 `--hash=`），再 `--require-hashes -r /tmp/req-hash.txt` | rc=0，185 MB，內容同上 |
+| `--require-hashes` 但 requirements 沒有 hash | `--require-hashes -r /tmp/req-plain.txt` | rc=2，`error: In --require-hashes mode, all requirements must have their versions pinned with ==, but found: requests` |
+| pip 版本加 hash | `/opt/venv/bin/pip install --target /tmp/extra -c /tmp/base.txt --require-hashes -r /tmp/req-hash.txt` | rc=0 |
+
+- 帶 hash 的清單（`--generate-hashes`）會把完整相依閉包都列出來，包含 pandas、numpy，所以 hash 模式下基本套件一定會重複裝，除非另外濾掉（濾掉後的清單不再是 `--require-hashes` 要求的完整閉包，要再驗證）。`install-extra.sh` 只在 requirements.txt 本身有 `--hash=` 時才加 `--require-hashes`，使用者提供的清單要自己是完整閉包
+
+### 版本衝突：管理者要的版本跟 constraints 不合
+
+| 情況 | 結果 |
+|---|---|
+| `-r` 內容 `pandas==2.3.3`（base 是 3.1.0），uv | rc=1；`error: No solution found when resolving dependencies` 加 `cause: Because you require pandas==2.3.3 and pandas==3.1.0, we can conclude that your requirements are unsatisfiable.`；`/tmp/extra` 沒有產生任何東西（`ls` 無輸出） |
+| 同上，pip | rc=1；`ERROR: ResolutionImpossible: ...` |
+| `-r` 內容 `requests` 加 `pandas<3`，uv | rc=1；`Because you require pandas<3 and pandas==3.1.0, we can conclude that your requirements are unsatisfiable.` |
+
+- 版本衝突會在解析階段就失敗，不會裝出半套內容，回傳碼非 0，所以 `install-extra.sh` 會走到它的失敗路徑（寫 `FAILED`、`exit 0`、桌面通知）。錯誤訊息要完整放進 `FAILED` 摘要，讓管理者看得到是哪個套件跟 constraints 衝突
+- 只測了「直接要求」和「同一份清單裡的兩個要求互相衝突」；沒有測某個第三方套件的相依範圍跟 base 衝突的情形（解析器的行為相同，預期同樣失敗）
 - uv 要出現在最終映像檔（spec §9 目前只有 builder 階段有 uv）；不想帶 uv 就用 pip（C），浪費的 MB 較多
 - 沒有驗證 `--require-hashes`（requirements 帶 `--hash=` 的情況）在這兩種指令下的行為；Task 3 寫腳本時要補測
 - 測試用的 venv 路徑是 `/opt/venv`，不是 spec 寫的 `/opt/jupyter/venv`，不影響結論
@@ -217,7 +241,7 @@ H 之後把 `/tmp/extra` 用 `.pth` 放進 `/opt/venv` 的 `sys.path`，`import 
 另外：
 
 - 映像檔裡 `xrdp-chansrv` 連結的是 `libfuse.so.2`（`ldd /usr/sbin/xrdp-chansrv`），映像檔沒有 `fusermount`
-- tk8s 的 Pod（RuntimeDefault、沒有 `/dev/fuse`、`rdpdr=false`）的 chansrv log 同樣出現三次 `FUSE mount ... failed`，而且 HOME 底下會建立一個空的 `thinclient_drives` 目錄，JupyterLab 的檔案瀏覽器根目錄看得到它（截圖 `s4-unconf.png`）
+- tk8s 的 Pod（RuntimeDefault、沒有 `/dev/fuse`、`rdpdr=false`）的 chansrv log 同樣出現三次 `FUSE mount ... failed`，而且 HOME 底下會建立一個空的 `thinclient_drives` 目錄，JupyterLab 的檔案瀏覽器根目錄看得到它（截圖 `s4-nosb.png`，就是 RuntimeDefault 加 `--no-sandbox` 那個 Pod）
 
 **對設計的影響**：
 
@@ -232,4 +256,5 @@ H 之後把 `/tmp/extra` 用 `.pth` 放進 `/opt/venv` 的 `sys.path`，`import 
 
 - `kubectl delete ns rdp-jupyter-spike` 已執行，`kubectl get ns` 已沒有該 namespace
 - 本機測試用的 podman 容器已移除
-- rdp-vscode 的 `run.sh` 沒有清理節點上映像檔的做法，所以 `localhost/rdp-jupyter-spike:b` 仍在 `tk8s-worker-1`、`tk8s-worker-2` 的 containers-storage；CRI-O 也快取了 `python:3.13-slim`。沒有動節點設定
+- 節點的映像檔儲存區有變動：rdp-vscode 的 `run.sh` 沒有清理映像檔的做法，所以 `localhost/rdp-jupyter-spike:b` 仍在 `tk8s-worker-1`、`tk8s-worker-2`，`docker.io/library/python:3.13-slim` 仍在 `tk8s-control-plane-1`。紀錄與移除指令（尚未執行）見 [ops/2026-11-03-tk8s-task0-spike-images.md](ops/2026-11-03-tk8s-task0-spike-images.md)。除此之外沒有動節點設定、kubelet 或 StorageClass
+- 截圖（`s4-unconf.png`、`s4-nosb.png`、全黑的 `s4.png`）和原始輸出放在 session 的 scratchpad（`/tmp/claude-1000/-home-bigred-rdp-jupyter/1813561c-9839-4476-a980-a117c893f1b7/scratchpad/task0/`），不在 repo 裡，暫存不保留
