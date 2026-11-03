@@ -1,9 +1,12 @@
 #!/bin/bash
 # Run by xrdp-sesman as the logged-in account for every new desktop. sesman uses
 # Policy=Default, so a reconnect reattaches to the existing session and this
-# script does not run again. A second session still happens when the colour depth
-# differs, and JupyterLab Desktop keeps its single-instance lock in userData, so
-# each session gets its own XDG_CONFIG_HOME, runtime dir and D-Bus. Per-user
+# script does not run again. Xorg sessions are fixed at 24 bpp (xrdp's
+# libipm/scp.c), so a client asking for another colour depth reattaches too.
+# Each session still gets its own XDG_CONFIG_HOME, runtime dir and D-Bus as
+# defense in depth: JupyterLab Desktop keeps its single-instance lock in
+# userData, so if one account ever ends up with two desktops, a shared userData
+# would make the second JupyterLab Desktop exit at once. Per-user
 # JupyterLab settings (~/.jupyter) are shared. Closing JupyterLab Desktop ends
 # the session.
 set -u
