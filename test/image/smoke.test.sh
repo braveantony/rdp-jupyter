@@ -136,11 +136,15 @@ run 'grep -qx "EnableFuseMount=false" /etc/xrdp/sesman.ini' \
 run 'python3 -I - <<"PY"
 import json, subprocess, sys
 schema = json.load(open("/opt/jupyter/venv/share/jupyter/lab/schemas/@jupyterlab/apputils-extension/notification.json"))
-allowed = [c["const"] for c in schema["properties"]["fetchNews"]["oneOf"]]
+props = schema["properties"]
+allowed = [c["const"] for c in props["fetchNews"]["oneOf"]]
 out = json.loads(subprocess.run(["/opt/rdp-jupyter/lab-overrides.sh"], capture_output=True, check=True).stdout)
-value = out["@jupyterlab/apputils-extension:notification"]["fetchNews"]
-sys.exit(0 if value == "false" and value in allowed else 1)
-PY' && pass "overrides: fetchNews=\"false\" is valid for the schema" || bad "overrides fetchNews invalid for the schema"
+notif = out["@jupyterlab/apputils-extension:notification"]
+ok = (notif["fetchNews"] == "false" and notif["fetchNews"] in allowed
+      and props["checkForUpdates"]["type"] == "boolean" and notif["checkForUpdates"] is False)
+sys.exit(0 if ok else 1)
+PY' && pass "overrides: fetchNews=\"false\" and checkForUpdates=false are valid for the schema" \
+  || bad "overrides fetchNews/checkForUpdates invalid for the schema"
 run 'grep -qx "rdpdr=false" /etc/xrdp/xrdp.ini && [ ! -e /etc/xrdp/key.pem ] && [ ! -e /etc/xrdp/rsakeys.ini ]' \
   && pass "xrdp: drive redirection off, no baked keys" || bad "xrdp.ini or baked keys wrong"
 
