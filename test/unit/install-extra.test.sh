@@ -57,6 +57,14 @@ rm "$VER"; run
 say failure
 new_env; run; before=$(cur)
 printf 'flask==3.0.0\n' >"$REQ"; run FAKE_PIP_FAIL=1
+printf 'requests==2.32.3\n' >"$REQ"; n=$(ncalls); run
+[ "$rc" -eq 0 ] && [ "$(ncalls)" -eq "$n" ] && [ ! -e "$EXTRA/FAILED" ] && [ "$(cur)" = "$before" ] \
+  && pass "revert clears FAILED" || bad "revert clears FAILED: rc=$rc calls=$(ncalls)/$n"
+new_env; run; before=$(cur); rm "$EXTRA/.stamp"; run
+[ "$rc" -eq 0 ] && [ "$(cur)" = "$before" ] && [ -e "$EXTRA/current/marker" ] && [ -e "$EXTRA/.stamp" ] \
+  && pass "lost stamp keeps current valid" || bad "lost stamp: rc=$rc cur=$(cur)"
+new_env; run; before=$(cur)
+printf 'flask==3.0.0\n' >"$REQ"; run FAKE_PIP_FAIL=1
 [ "$rc" -eq 0 ] && [ "$(cur)" = "$before" ] && grep -q 'fake pip failure' "$EXTRA/FAILED" && [ "$(tmps)" -eq 0 ] \
   && pass "failure keeps current" || bad "failure keeps current: rc=$rc cur=$(cur) $(cat "$EXTRA/FAILED" 2>&1)"
 run

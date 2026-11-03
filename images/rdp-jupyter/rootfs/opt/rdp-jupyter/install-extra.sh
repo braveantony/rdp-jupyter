@@ -42,6 +42,7 @@ main() {
   flock 9 || { log "cannot take lock"; return 0; }
 
   if [ "$(cat "$EXTRA_DIR/.stamp" 2>/dev/null)" = "$hash" ] && [ -d "$EXTRA_DIR/current/" ]; then
+    rm -f "$EXTRA_DIR/FAILED"
     log "up to date ($hash), skipping"
     return 0
   fi
@@ -58,7 +59,7 @@ main() {
   log "installing extra packages ($hash)"
   local err rc
   err=$(mktemp "$tmpdir/pip-out.XXXXXX") || { log "cannot create temp file"; return 0; }
-  TMPDIR=$tmpdir timeout "$INSTALL_TIMEOUT" "${cmd[@]}" >"$err" 2>&1 </dev/null
+  TMPDIR=$tmpdir timeout "$INSTALL_TIMEOUT" "${cmd[@]}" >"$err" 2>&1 </dev/null 9>&-
   rc=$?
 
   if [ "$rc" -ne 0 ]; then
@@ -71,8 +72,14 @@ main() {
   fi
 
   # Switch: rename target, then atomically repoint the symlink.
-  rm -rf "${EXTRA_DIR:?}/$hash"
-  if ! mv -T "$target" "$EXTRA_DIR/$hash" \
+  # A complete <hash> dir may already exist (e.g. lost .stamp); reuse it so
+  # `current` never dangles.
+  if [ -d "$EXTRA_DIR/$hash" ]; then
+    rm -rf "$target"
+  else
+    mv -T "$target" "$EXTRA_DIR/$hash"
+  fi
+  if [ ! -d "$EXTRA_DIR/$hash" ] \
     || ! ln -sfn "$hash" "$EXTRA_DIR/.current.new" \
     || ! mv -T "$EXTRA_DIR/.current.new" "$EXTRA_DIR/current"; then
     echo "failed to switch to $hash" >"$EXTRA_DIR/FAILED"
