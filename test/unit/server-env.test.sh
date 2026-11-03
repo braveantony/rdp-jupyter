@@ -29,6 +29,12 @@ neg_cfg=$tmp/neg.env; printf 'KERNEL_MEMORY_LIMIT_KB=-5\nKERNEL_THREADS=08\n' > 
 out=$(RDP_JUPYTER_SESSION_ENV=$neg_cfg GEN=$GEN bash -c '. $GEN; ulimit -H -d; echo $OPENBLAS_NUM_THREADS')
 [ "$out" = $'2097152\n8' ] && pass "negative memory is default, leading zero is base-10" || bad "got: $out"
 
+say "XDG_CONFIG_HOME"
+# The per-session XDG_CONFIG_HOME from startwm.sh must not reach the server and
+# kernels, so their tools use ~/.config
+out=$(XDG_CONFIG_HOME=/tmp/sess/10.1000/xdg RDP_JUPYTER_SESSION_ENV=$f GEN=$GEN bash -c '. $GEN; echo "${XDG_CONFIG_HOME-unset}"')
+[ "$out" = unset ] && pass "XDG_CONFIG_HOME is unset" || bad "XDG_CONFIG_HOME: $out"
+
 say "caller survives"
 # sourcing never exits the caller
 RDP_JUPYTER_SESSION_ENV=/nonexistent GEN=$GEN bash -c '. $GEN; echo alive' 2>/dev/null | grep -q alive && pass "caller survives" || bad "caller exited"

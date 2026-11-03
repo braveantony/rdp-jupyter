@@ -275,18 +275,36 @@ H 之後把 `/tmp/extra` 用 `.pth` 放進 `/opt/venv` 的 `sys.path`，`import 
 - uv 不在 spec 的預算表裡（Task 4 之後才決定放進最終映像檔）
 - 另一條可以省的路（這次沒有動）：`openbox` → `libimlib2t64` → `libspectre1` → `libgs10`，再帶進 `poppler-data`、`fonts-urw-base35`，約 50 MB
 
-**處理**：在最終階段 `apt-get install` 之後，用 `dpkg --purge --force-depends` 拿掉 `libgl1-mesa-dri`、`mesa-libgallium`、`libllvm19`、`libz3-4`。結果 1,190,192,579 bytes，通過上限，**只剩約 9.8 MB 的餘裕**。
+**處理**（第一輪）：在最終階段 `apt-get install` 之後，用 `dpkg --purge --force-depends` 拿掉 `libgl1-mesa-dri`、`mesa-libgallium`、`libllvm19`、`libz3-4`。結果 1,190,192,579 bytes，只剩約 9.8 MB 的餘裕。
+
+**處理**（第二輪，review 之後）：
+
+- 同一個 `--force-depends` 步驟再拿掉已經沒用的 `libegl-mesa0`、`libglx-mesa0`；`startwm.sh` 啟動 JupyterLab Desktop 時加 `--disable-gpu`
+- `/etc/dpkg/dpkg.cfg.d/rdp-jupyter-excludes` 在 `apt-get install` 之前寫好：不裝 `NotoSerifCJK*`（Bold 加 Regular 約 54 MB；只用 Sans），`/usr/share/doc` 只留 copyright（slim 基底本來就這樣排除，再寫一次讓它明確）
+- `locale-gen` 併進 apt 的 `RUN`，產生 `locale-archive` 之後在同一層刪掉 `/usr/share/i18n`（17 MB）
+- Chromium 的 `LICENSES.chromium.html` 改存成 `.gz`（19.5 MB → 2.1 MB）
+- `app.asar` 重新打包前刪掉上游的 `src/`、`test/`、`.eslintcache`（執行時的程式和資源都在 `build/` 底下，例如 `build/out/main/env_info.py`、`build/app-assets/`）
+
+結果 **1,100,544,807 bytes**，餘裕約 99 MB。各層：基底 81 MB、apt（含 locale）314 MB、uv 42 MB、`/opt/JupyterLab` 279 MB、授權檔 2.1 MB、venv 381 MB。
+
+**拿掉 libgallium 之後還指向它的東西**（都只在執行時 `dlopen`，載入失敗就退回軟體繪圖）：
+
+- `libgbm1` 的 `/usr/lib/x86_64-linux-gnu/gbm/dri_gbm.so`：`ldd` 顯示 `libgallium-25.0.7-2+deb13u1.so => not found`。`libgbm.so.1` 本身只連結 `libdrm`、`libexpat`，所以 Electron 和 Xorg 都能啟動；只有真的要用 GBM 時才會載入失敗
+- `libEGL_mesa`、`libGLX_mesa`（`libegl-mesa0`、`libglx-mesa0`）原本也連結 libgallium，第二輪已經整個移除；glvnd 的 `egl_vendor.d` 是空的
+- Xorg 的 `libglamoregl.so` 和 `libglx.so` 的 `ldd` 都沒有 `not found`。實際登入時 `.xorgxrdp.10.log`：`glamoregl` 模組照常載入（沒有 `/dev/dri` 的 GPU 可用，xorgxrdp 不會啟用 glamor）；GLX 是 `AIGLX error: dlopen of /usr/lib/x86_64-linux-gnu/dri/swrast_dri.so failed`、`GLX: no usable GL providers found for screen 0`，Xorg 繼續執行，只是沒有 GLX
+- Electron 加 `--disable-gpu`，不走 GPU 程序的 GL 路徑
 
 驗證：
 
-- `ldd /opt/JupyterLab/jupyterlab-desktop` 沒有 `not found`（`libgbm.so.1` 本身只連結 `libdrm`、`libexpat`，不直接連結 libgallium）
-- 用 `localhost/rdp-vscode-e2e-client:dev` 從本機 RDP 登入（`RDP_PASSWORD=bigred`），出現 JupyterLab 的 Launcher（繁體中文介面，狀態列 `Mem: 85.89 / 2048.00 MB`），Xorg 和 Electron 都正常。Xorg 的 log 照常載入 `glx` 模組；Electron 用自己帶的 SwiftShader
+- `ldd /opt/JupyterLab/jupyterlab-desktop` 沒有 `not found`
+- 用 `localhost/rdp-vscode-e2e-client:dev` 從本機 RDP 登入（`RDP_PASSWORD=bigred`）：JupyterLab 視窗最大化、沒有 openbox 的邊框（畫面上的標題列是 JupyterLab Desktop 自己畫的），繁體中文介面，狀態列 `Mem: 85.71 / 2048.00 MB`；行程是 `openbox --config-file /etc/rdp-jupyter/openbox-rc.xml` 和 `jupyterlab-desktop --no-sandbox --disable-gpu`
 - `test/image/smoke.test.sh`、`test/image/notebook.test.sh`、`test/unit/*.test.sh` 全部通過
 
 **對設計的影響**：
 
 - 最終映像檔裡 apt 的相依關係是「壞的」：之後不能在這個映像檔上 `apt-get install`，要改 Dockerfile 重建。執行時不用 apt（`install-extra.sh` 用 uv），所以不影響功能
-- 餘裕只有約 10 MB，任何套件升級都可能超過。要再省，依代價由低到高：openbox 的 imlib2 → ghostscript 那條（約 50 MB，同樣要 `--force-depends`）；拿掉 `pip`（14 MB，但使用者就不能 `%pip install --user`）；不做 `compileall`（73 MB，但 venv 是唯讀的，每次 import 都要重新編譯）
+- 沒有 GLX：使用者在桌面裡跑需要 OpenGL 的 X 程式會失敗。JupyterLab 和 matplotlib（Agg、inline）不需要
+- 還能再省的地方，依代價由低到高：openbox 的 imlib2 → ghostscript 那條（約 50 MB，同樣要 `--force-depends`）；拿掉 `pip`（14 MB，但使用者就不能 `%pip install --user`）；不做 `compileall`（73 MB，但 venv 是唯讀的，每次 import 都要重新編譯）
 
 ---
 

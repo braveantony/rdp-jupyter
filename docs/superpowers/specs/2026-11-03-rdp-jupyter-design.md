@@ -235,14 +235,16 @@ entrypoint 依 `JUPYTER_LOCALE` 產生 `/opt/jupyter/venv/share/jupyter/lab/sett
 
 ### 大小預算（解壓縮後）
 
-| 部分 | 估計 |
+| 部分 | 實測（Task 9） |
 |---|---|
-| 基底與 Xorg 等套件 | ~650 MB |
-| JupyterLab Desktop | ~265 MB |
-| venv 與系統 Python | ~290 MB |
-| 合計 | ~1.2 GB（上限，由測試強制檢查） |
+| 基底（debian:trixie-slim） | 81 MB |
+| Xorg、xrdp、GTK、字型、系統 Python 等套件（已拿掉 Mesa/LLVM、Noto Serif CJK、locale 原始檔） | 314 MB |
+| JupyterLab Desktop（含壓縮後的 Chromium 授權檔） | 281 MB |
+| venv | 381 MB |
+| uv | 42 MB |
+| 合計 | 1.10 GB（1,100,544,807 bytes；上限 1.2 GB，由測試強制檢查） |
 
-如果超過，先用 `dive` 找出最大的層，再評估拿掉 Mesa/LLVM 等 Xorg 不需要的依賴。
+如果超過，先用 `dive` 找出最大的層，再評估拿掉 Mesa/LLVM 等 Xorg 不需要的依賴。Task 9 的量測與取捨記在 `docs/spike-notes.md` 第 6 節。
 
 ### 供應鏈
 
@@ -291,7 +293,7 @@ rdp-jupyter/
 │   └── rootfs/
 │       ├── opt/rdp-jupyter/   # entrypoint.sh、accounts.sh、session-env.sh、server-env.sh、install-extra.sh、notify-extra.sh
 │       ├── etc/xrdp/startwm.sh
-│       └── etc/skel/.config/openbox/rc.xml
+│       └── etc/rdp-jupyter/openbox-rc.xml   # kiosk 視窗規則，root 擁有；startwm.sh 用 --config-file 指定
 ├── manifests/                 # base、stateless、stateful、example/requirements
 ├── test/                      # unit、image、deploy、e2e（沿用 rdp-vscode 的 lib.sh 和 e2e client）
 └── docs/                      # architecture.md、install.md、user-guide.md、build-image.md、spike-notes.md、design/、superpowers/

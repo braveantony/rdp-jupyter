@@ -29,12 +29,12 @@ run '[ ! -e /opt/JupyterLab/resources/env_installer ]' \
 paks=$(run 'cd /opt/JupyterLab/locales && ls | sort | tr "\n" " "')
 [ "$paks" = "en-US.pak zh-TW.pak " ] \
   && pass "locales: $paks" || bad "locales: $paks"
-run '[ -s /usr/share/doc/jupyterlab-desktop/LICENSES.chromium.html ] && [ ! -e /opt/JupyterLab/LICENSES.chromium.html ]' \
+run '[ -s /usr/share/doc/jupyterlab-desktop/LICENSES.chromium.html.gz ] && [ ! -e /opt/JupyterLab/LICENSES.chromium.html ]' \
   && pass "LICENSES.chromium.html moved to /usr/share/doc" || bad "LICENSES.chromium.html not moved"
-# Lists the files in app.asar that contain the old token argument, and whether
-# server.js has the JUPYTER_TOKEN line (proof the patch ran). The asar also
-# ships upstream's TypeScript sources (src/**/*.ts); they are never executed,
-# token-env.sh leaves them alone, so they are skipped here.
+# Lists the files in app.asar that contain the old token argument, whether
+# server.js has the JUPYTER_TOKEN line (proof the patch ran), and any entries
+# stored outside the archive (app.asar.unpacked), which this check could not
+# read: there must be none.
 ASAR_CHECK='
 import json, struct, sys
 f = open("/opt/JupyterLab/resources/app.asar", "rb")
@@ -46,16 +46,19 @@ def walk(node, path):
         p = path + name
         if "files" in entry:
             yield from walk(entry, p + "/")
-        elif not entry.get("unpacked"):
+        elif entry.get("unpacked"):
+            unpacked.append(p)
+        elif "offset" in entry:
             f.seek(base + int(entry["offset"]))
             yield p, f.read(entry["size"])
-hits, patched = [], False
+hits, patched, unpacked = [], False, []
 for p, data in walk(tree, ""):
     if p == "build/out/main/server.js":
         patched = b"JUPYTER_TOKEN: this._info.token," in data
-    if b"ServerApp.token=\"{token}\"" in data and not (p.startswith("src/") and p.endswith(".ts")):
+    if b"ServerApp.token=\"{token}\"" in data:
         hits.append(p)
 print("patched=%s" % patched)
+print("unpacked=%s" % " ".join(unpacked))
 print("hits=%s" % " ".join(hits))
 '
 asar=$(podman run --rm -i --entrypoint python3 "$IMG" -I - <<<"$ASAR_CHECK" 2>&1)
@@ -63,10 +66,16 @@ case $asar in
   *"patched=True"*) pass "app.asar server.js passes JUPYTER_TOKEN in the env" ;;
   *) bad "app.asar lacks the JUPYTER_TOKEN patch: $asar" ;;
 esac
+unpacked=$(printf '%s\n' "$asar" | sed -n 's/^unpacked=//p')
+case $asar in
+  *"unpacked="*) [ -z "$unpacked" ] \
+      && pass "app.asar has no unpacked entries" || bad "app.asar has unpacked entries: $unpacked" ;;
+  *) bad "app.asar check failed: $asar" ;;
+esac
 hits=$(printf '%s\n' "$asar" | sed -n 's/^hits=//p')
 case $asar in
   *"hits="*) [ -z "$hits" ] \
-      && pass "extracted app.asar has no ServerApp.token=\"{token}\" (src/*.ts skipped)" \
+      && pass "extracted app.asar has no ServerApp.token=\"{token}\"" \
       || bad "ServerApp.token=\"{token}\" still in: $hits" ;;
   *) bad "app.asar check failed: $asar" ;;
 esac
@@ -100,6 +109,9 @@ run '[ "$(stat -c %U:%a /opt/jupyter/extra)" = root:755 ]' \
 run "$VENV/bin/python -I -c 'import nbclient, pip'" \
   && pass "nbclient and pip are in the venv" || bad "nbclient or pip missing from the venv"
 
+run '! ls /usr/share/fonts/opentype/noto/NotoSerifCJK* 2>/dev/null && ls /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc >/dev/null && [ ! -e /usr/share/i18n ]' \
+  && pass "no Noto Serif CJK and no locale sources; Noto Sans CJK kept" || bad "font or locale trimming wrong"
+
 say install-extra-inputs
 # constraints.txt is requirements.lock without hashes and comments
 want=$(grep -E '^[A-Za-z0-9]' images/rdp-jupyter/requirements.lock | sed 's/ .*//' | sort)
@@ -112,7 +124,7 @@ run 'uv --version' >/dev/null && pass "uv is installed" || bad "uv missing"
 run 'for f in entrypoint accounts session-env install-extra notify-extra desktop-settings lab-overrides sesman-config; do
        [ -x /opt/rdp-jupyter/$f.sh ] || exit 1
      done
-     [ -x /etc/xrdp/startwm.sh ] && [ -r /opt/rdp-jupyter/server-env.sh ] && [ -s /etc/skel/.config/openbox/rc.xml ]' \
+     [ -x /etc/xrdp/startwm.sh ] && [ -r /opt/rdp-jupyter/server-env.sh ] && [ "$(stat -c %U:%a /etc/rdp-jupyter/openbox-rc.xml)" = root:644 ]' \
   && pass "scripts are in place and executable" || bad "scripts missing or not executable"
 run 'command -v xmessage && command -v pkill && command -v tini' >/dev/null \
   && pass "xmessage, pkill and tini are installed" || bad "xmessage, pkill or tini missing"

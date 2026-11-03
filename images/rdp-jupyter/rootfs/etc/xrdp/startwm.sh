@@ -69,12 +69,16 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 143' TERM HUP INT
 
-openbox &
+# The kiosk config is root-owned and passed explicitly: XDG_CONFIG_HOME points
+# at $S/xdg, so openbox would never find ~/.config/openbox/rc.xml, and users
+# must not be able to edit kiosk mode away
+openbox --config-file /etc/rdp-jupyter/openbox-rc.xml &
 /opt/rdp-jupyter/notify-extra.sh &
 
 # Run the Electron binary itself, with --no-sandbox (spec section 6: the pod's
-# seccomp blocks Chromium's namespace sandbox). In the background so a SIGTERM
-# from sesman runs the trap right away.
-/opt/JupyterLab/jupyterlab-desktop --no-sandbox &
+# seccomp blocks Chromium's namespace sandbox) and --disable-gpu (there is no
+# GPU and the image has no Mesa drivers; see docs/spike-notes.md section 6).
+# In the background so a SIGTERM from sesman runs the trap right away.
+/opt/JupyterLab/jupyterlab-desktop --no-sandbox --disable-gpu &
 jlab_pid=$!
 wait "$jlab_pid"

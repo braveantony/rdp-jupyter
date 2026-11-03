@@ -40,5 +40,11 @@ if ! ulimit -S -H -d "$_rdp_kb" 2>/dev/null; then
 fi
 export OPENBLAS_NUM_THREADS=$_rdp_threads OMP_NUM_THREADS=$_rdp_threads MKL_NUM_THREADS=$_rdp_threads
 
+# startwm.sh points XDG_CONFIG_HOME at the per-session $S/xdg so each Electron
+# instance gets its own userData. The server and kernels must not inherit it:
+# matplotlib, pip, git and friends would ignore ~/.config and their writes would
+# vanish with the session. Unset, they fall back to ~/.config.
+unset XDG_CONFIG_HOME
+
 unset -f _rdp_int
 unset _rdp_src _rdp_kb_raw _rdp_th_raw _rdp_kb _rdp_threads
