@@ -60,6 +60,6 @@ xrdp-sesman --nodaemon &
 xrdp --nodaemon &
 
 # Any daemon exiting stops the container so K8s restarts it
-wait -n
+wait -n || true
 echo "[entrypoint] a service exited, stopping container" >&2
 exit 1
