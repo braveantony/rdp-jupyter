@@ -130,6 +130,17 @@ run 'command -v xmessage && command -v pkill && command -v tini' >/dev/null \
   && pass "xmessage, pkill and tini are installed" || bad "xmessage, pkill or tini missing"
 run 'locale -a | grep -qi "^zh_TW.utf8$"' \
   && pass "zh_TW.UTF-8 locale generated" || bad "zh_TW.UTF-8 locale missing"
+run 'grep -qx "EnableFuseMount=false" /etc/xrdp/sesman.ini' \
+  && pass "sesman: chansrv FUSE off (no ~/thinclient_drives)" || bad "sesman.ini EnableFuseMount not false"
+# The generated overrides must be valid for the installed JupyterLab's schema
+run 'python3 -I - <<"PY"
+import json, subprocess, sys
+schema = json.load(open("/opt/jupyter/venv/share/jupyter/lab/schemas/@jupyterlab/apputils-extension/notification.json"))
+allowed = [c["const"] for c in schema["properties"]["fetchNews"]["oneOf"]]
+out = json.loads(subprocess.run(["/opt/rdp-jupyter/lab-overrides.sh"], capture_output=True, check=True).stdout)
+value = out["@jupyterlab/apputils-extension:notification"]["fetchNews"]
+sys.exit(0 if value == "false" and value in allowed else 1)
+PY' && pass "overrides: fetchNews=\"false\" is valid for the schema" || bad "overrides fetchNews invalid for the schema"
 run 'grep -qx "rdpdr=false" /etc/xrdp/xrdp.ini && [ ! -e /etc/xrdp/key.pem ] && [ ! -e /etc/xrdp/rsakeys.ini ]' \
   && pass "xrdp: drive redirection off, no baked keys" || bad "xrdp.ini or baked keys wrong"
 

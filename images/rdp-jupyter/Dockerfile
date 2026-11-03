@@ -121,14 +121,21 @@ ENV LANG=C.UTF-8 \
 
 # xrdp.ini: keep only the Xorg session type; no drive redirection (D9: no RDP
 #           file transfer, no FUSE) and no sound
-# sesman.ini: no root login. Policy, MaxSessions and the disconnect keys keep
-#             Debian's defaults; sesman-config.sh rewrites them at startup.
+# sesman.ini: no root login. EnableFuseMount=false: chansrv then skips FUSE
+#             entirely and never creates the empty ~/thinclient_drives mount
+#             point (xrdp 0.10.1 xfuse_init returns before mkdir; it only
+#             disables drive redirection and file copy-paste, both already off
+#             per D9; text clipboard is unaffected). Policy, MaxSessions and the
+#             disconnect keys keep Debian's defaults; sesman-config.sh rewrites
+#             them at startup.
 # Keys and certs are generated at startup, never baked into the image.
 RUN sed -i '/^\[Xvnc\]/,$d' /etc/xrdp/xrdp.ini \
  && sed -i -e 's/^rdpdr=true/rdpdr=false/' \
            -e 's/^rdpsnd=true/rdpsnd=false/' /etc/xrdp/xrdp.ini \
  && grep -qx 'rdpdr=false' /etc/xrdp/xrdp.ini \
- && sed -i 's/^AllowRootLogin=true/AllowRootLogin=false/' /etc/xrdp/sesman.ini \
+ && sed -i -e 's/^AllowRootLogin=true/AllowRootLogin=false/' \
+          -e 's/^#EnableFuseMount=false/EnableFuseMount=false/' /etc/xrdp/sesman.ini \
+ && grep -qx 'EnableFuseMount=false' /etc/xrdp/sesman.ini \
  && rm -f /etc/xrdp/cert.pem /etc/xrdp/key.pem /etc/xrdp/rsakeys.ini
 
 COPY --from=uv /uv /usr/local/bin/uv

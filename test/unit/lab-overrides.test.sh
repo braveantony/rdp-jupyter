@@ -31,7 +31,8 @@ got=$(locale_of "$out")
 
 say "output shape"
 out=$(JUPYTER_LOCALE=en bash "$GEN")
-want='{"@jupyterlab/translation-extension:plugin": {"locale": "en"}}'
+want='{"@jupyterlab/translation-extension:plugin": {"locale": "en"},
+      "@jupyterlab/apputils-extension:notification": {"fetchNews": "false"}}'
 python3 -I -c 'import json,sys; sys.exit(0 if json.loads(sys.argv[1])==json.loads(sys.argv[2]) else 1)' "$out" "$want" \
   && pass "exact document" || bad "document differs: $out"
 

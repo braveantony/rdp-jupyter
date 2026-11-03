@@ -249,6 +249,7 @@ H 之後把 `/tmp/extra` 用 `.pth` 放進 `/opt/venv` 的 `sys.path`，`import 
 - 而且不只要 `/dev/fuse`：要同時有 `/dev/fuse`、`CAP_SYS_ADMIN`（讓 setuid 的 `fusermount3` 能 mount）、`fuse3` 套件。`CAP_SYS_ADMIN` 跟 spec §6 的安全姿態（drop capabilities、RuntimeDefault）衝突，所以預設部署不開，傳檔的替代方式是 JupyterLab 檔案瀏覽器的上傳／下載按鈕
 - 預設部署保持 `rdpdr=false`；chansrv 的 FUSE 錯誤 log 是預期的雜訊，要寫進文件避免被當成故障
 - `thinclient_drives` 空目錄會出現在 HOME，要決定要不要隱藏或接受
+- 後續（Task 9）：`sesman.ini` 的 `[Chansrv]` 設 `EnableFuseMount=false`（xrdp 0.10.1 的 sesman.ini(5) 有這個設定；`chansrv_fuse.c` 的 `xfuse_init` 在建立掛載點之前就返回）。chansrv 的 log 只剩一行 `FUSE mounts are disabled by config`，不再有 FUSE 錯誤，HOME 也不再出現 `thinclient_drives`。代價只有磁碟重導向和剪貼簿傳檔，兩者本來就因為 D9 不提供；文字剪貼簿不受影響
 
 ---
 
