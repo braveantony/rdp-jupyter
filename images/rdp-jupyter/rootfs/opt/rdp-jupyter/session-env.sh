@@ -18,7 +18,7 @@ int_setting() {
   case $v in
     '' | *[!0-9]*) ;;
     *) if [ "${#v}" -le 12 ] && [ $((10#$v)) -ge "$min" ]; then
-         printf %s "$v"
+         printf %s "$((10#$v))"
          return
        fi ;;
   esac
@@ -42,7 +42,7 @@ if [ -n "$raw" ]; then
   esac
   if [ "$unit" -gt 0 ] && [ "${#num}" -le 12 ] && [ $((10#$num)) -ge 1 ]; then
     mem_kb=$((10#$num * unit))
-    mem=$raw
+    mem="$((10#$num))${raw#"$num"}"
     if [ "$mem_kb" -lt 1048576 ]; then
       echo "[entrypoint] KERNEL_MEMORY_LIMIT $raw raised to 1Gi" >&2
       mem=1Gi
@@ -57,9 +57,9 @@ threads=$(int_setting KERNEL_THREADS 2 1)
 cull=$(int_setting KERNEL_CULL_IDLE_TIMEOUT 3600 0)
 disconnected=$(int_setting DISCONNECTED_TIMEOUT 28800 1)
 
-# JUPYTER_LOCALE: zh-tw or zh_TW (JupyterLab's zh_TW code) or en. Empty is rejected here.
+# JUPYTER_LOCALE: zh-tw or zh_TW (JupyterLab's zh_TW code) or en. Unset or empty is the default.
 locale=zh_TW
-case ${JUPYTER_LOCALE-zh-tw} in
+case ${JUPYTER_LOCALE:-zh-tw} in
   zh-tw | zh_TW) ;;
   en) locale=en ;;
   *) invalid JUPYTER_LOCALE "${JUPYTER_LOCALE:-}" zh_TW ;;

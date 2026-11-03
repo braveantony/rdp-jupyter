@@ -33,6 +33,7 @@ check "Gi keeps string" KERNEL_MEMORY_LIMIT 4Gi KERNEL_MEMORY_LIMIT=4Gi
 check "below 1Gi is raised" KERNEL_MEMORY_LIMIT_KB 1048576 KERNEL_MEMORY_LIMIT=256Mi
 check "raised string is 1Gi" KERNEL_MEMORY_LIMIT 1Gi KERNEL_MEMORY_LIMIT=256Mi
 check "garbage is default" KERNEL_MEMORY_LIMIT_KB 2097152 KERNEL_MEMORY_LIMIT=lots
+check "leading zeros normalized" KERNEL_MEMORY_LIMIT 7Gi KERNEL_MEMORY_LIMIT=007Gi
 check "bare number is default" KERNEL_MEMORY_LIMIT_KB 2097152 KERNEL_MEMORY_LIMIT=2048
 check "zero is default" KERNEL_MEMORY_LIMIT_KB 2097152 KERNEL_MEMORY_LIMIT=0Gi
 err=$(KERNEL_MEMORY_LIMIT=256Mi bash "$GEN" 2>&1 >/dev/null); rc=$?
@@ -44,6 +45,7 @@ err=$(KERNEL_MEMORY_LIMIT=lots bash "$GEN" 2>&1 >/dev/null); rc=$?
 
 say threads and cull
 check "threads 4" KERNEL_THREADS 4 KERNEL_THREADS=4
+check "threads leading zero is base-10" KERNEL_THREADS 8 KERNEL_THREADS=08
 check "threads 0 is default" KERNEL_THREADS 2 KERNEL_THREADS=0
 check "threads text is default" KERNEL_THREADS 2 KERNEL_THREADS=many
 check "cull 0 allowed" KERNEL_CULL_IDLE_TIMEOUT 0 KERNEL_CULL_IDLE_TIMEOUT=0
@@ -54,6 +56,9 @@ check "locale en" JUPYTER_LOCALE en JUPYTER_LOCALE=en
 check "locale zh-tw" JUPYTER_LOCALE zh_TW JUPYTER_LOCALE=zh-tw
 check "locale zh_TW" JUPYTER_LOCALE zh_TW JUPYTER_LOCALE=zh_TW
 check "locale bad" JUPYTER_LOCALE zh_TW JUPYTER_LOCALE=fr
+check "locale empty is default" JUPYTER_LOCALE zh_TW JUPYTER_LOCALE=
+err=$(env JUPYTER_LOCALE= bash "$GEN" 2>&1 >/dev/null)
+[ -z "$err" ] && pass "locale empty does not warn" || bad "locale empty warns: $err"
 
 say disconnect
 check "disconnect 3600" DISCONNECTED_TIMEOUT 3600 DISCONNECTED_TIMEOUT=3600
