@@ -186,6 +186,7 @@ entrypoint 依 `JUPYTER_LOCALE` 產生 `/opt/jupyter/venv/share/jupyter/lab/sett
 ### 斷線與重新連線（D6）
 
 - `sesman.ini`：`Policy=Default`、`KillDisconnected=true`，`DisconnectedTimeLimit` 由 `DISCONNECTED_TIMEOUT` 決定，預設 `28800`（8 小時）
+- 最短是 60 秒：xrdp 0.10 由 xorgxrdp 負責清掉斷線的桌面，它會把小於 60 的值當成 60，而且每 10 秒才檢查一次（`module/rdpClientCon.c`），所以實際會在逾時後 0～10 秒內清掉。entrypoint 遇到小於 60 的值會改成 60，並在 log 印出警告
 - entrypoint 依環境變數改寫 `sesman.ini`（只接受正整數，不合法時用預設值並在 log 印出警告）
 - `MAX_SESSIONS` 的計算包含斷線中的桌面，文件要寫明
 - 同一帳號第二次登入會接回原本的桌面，第一個連線會被中斷
@@ -272,7 +273,7 @@ postStart：`exec: ["/opt/rdp-jupyter/install-extra.sh"]`；ConfigMap `rdp-jupyt
 | `USERS_FILE` | `/etc/rdp-jupyter/users` | 帳號檔案，一行一個 `帳號:密碼` |
 | `RDP_USER`、`RDP_PASSWORD` | `bigred`、— | 沒有帳號檔案時使用（單機 podman） |
 | `MAX_SESSIONS` | `3` | 桌面數上限（包含斷線中的桌面） |
-| `DISCONNECTED_TIMEOUT` | `28800` | 斷線的桌面保留幾秒 |
+| `DISCONNECTED_TIMEOUT` | `28800` | 斷線的桌面保留幾秒；最短 60 秒（xorgxrdp 的限制），小於 60 會改成 60 並印出警告 |
 | `KERNEL_MEMORY_LIMIT` | `2Gi` | 每個 kernel 的記憶體硬上限；接受 `Mi`、`Gi` 單位 |
 | `KERNEL_THREADS` | `2` | BLAS/OpenMP 執行緒數 |
 | `KERNEL_CULL_IDLE_TIMEOUT` | `3600` | 閒置 kernel 幾秒後回收；`0` 代表不回收 |

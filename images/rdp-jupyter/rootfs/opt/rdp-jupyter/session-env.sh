@@ -56,6 +56,12 @@ fi
 threads=$(int_setting KERNEL_THREADS 2 1)
 cull=$(int_setting KERNEL_CULL_IDLE_TIMEOUT 3600 0)
 disconnected=$(int_setting DISCONNECTED_TIMEOUT 28800 1)
+# xorgxrdp (module/rdpClientCon.c) kills a disconnected desktop after at least
+# 60 seconds, whatever sesman.ini says; say so instead of silently differing
+if [ "$disconnected" -lt 60 ]; then
+  echo "[entrypoint] DISCONNECTED_TIMEOUT $DISCONNECTED_TIMEOUT raised to 60" >&2
+  disconnected=60
+fi
 
 # JUPYTER_LOCALE: zh-tw or zh_TW (JupyterLab's zh_TW code) or en. Unset or empty is the default.
 locale=zh_TW

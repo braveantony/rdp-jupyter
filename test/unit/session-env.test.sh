@@ -64,6 +64,13 @@ say disconnect
 check "disconnect 3600" DISCONNECTED_TIMEOUT 3600 DISCONNECTED_TIMEOUT=3600
 check "disconnect bad" DISCONNECTED_TIMEOUT 28800 DISCONNECTED_TIMEOUT=-5
 check "disconnect 0 is default" DISCONNECTED_TIMEOUT 28800 DISCONNECTED_TIMEOUT=0
+check "disconnect 20 is raised to 60" DISCONNECTED_TIMEOUT 60 DISCONNECTED_TIMEOUT=20
+check "disconnect 60 stays 60" DISCONNECTED_TIMEOUT 60 DISCONNECTED_TIMEOUT=60
+err=$(DISCONNECTED_TIMEOUT=20 bash "$GEN" 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 0 ] && [ "$err" = "[entrypoint] DISCONNECTED_TIMEOUT 20 raised to 60" ] \
+  && pass "disconnect 20 warns raised" || bad "disconnect 20: rc=$rc err=$err"
+err=$(DISCONNECTED_TIMEOUT=60 bash "$GEN" 2>&1 >/dev/null)
+[ -z "$err" ] && pass "disconnect 60 does not warn" || bad "disconnect 60 warns: $err"
 check "disconnect empty is default" DISCONNECTED_TIMEOUT 28800 DISCONNECTED_TIMEOUT=
 err=$(env DISCONNECTED_TIMEOUT= bash "$GEN" 2>&1 >/dev/null)
 [ -z "$err" ] && pass "unset-like empty does not warn" || bad "empty warns: $err"
