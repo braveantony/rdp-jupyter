@@ -60,10 +60,15 @@ eval "$(dbus-launch --sh-syntax)"
 
 jlab_pid=""
 cleanup() {
+  # JupyterLab Desktop leads its own process group (setsid below), which holds
+  # its helpers and the JupyterLab server. Signal the whole group: when Xorg
+  # goes away first (the disconnected timeout), JupyterLab Desktop dies without
+  # stopping its server, and the server would be left running. The server
+  # stops its kernels (they have their own sessions) on SIGTERM.
   if [ -n "$jlab_pid" ]; then
-    kill -TERM "$jlab_pid" 2>/dev/null
-    for _ in $(seq 20); do kill -0 "$jlab_pid" 2>/dev/null || break; sleep 0.5; done
-    kill -KILL "$jlab_pid" 2>/dev/null
+    kill -TERM -- "-$jlab_pid" 2>/dev/null
+    for _ in $(seq 20); do kill -0 -- "-$jlab_pid" 2>/dev/null || break; sleep 0.5; done
+    kill -KILL -- "-$jlab_pid" 2>/dev/null
   fi
   kill "$DBUS_SESSION_BUS_PID" 2>/dev/null
   pkill -TERM -P $$ 2>/dev/null
@@ -81,7 +86,9 @@ openbox --config-file /etc/rdp-jupyter/openbox-rc.xml &
 # Run the Electron binary itself, with --no-sandbox (spec section 6: the pod's
 # seccomp blocks Chromium's namespace sandbox) and --disable-gpu (there is no
 # GPU and the image has no Mesa drivers; see docs/spike-notes.md section 6).
-# In the background so a SIGTERM from sesman runs the trap right away.
-/opt/JupyterLab/jupyterlab-desktop --no-sandbox --disable-gpu &
+# In the background so a SIGTERM from sesman runs the trap right away. setsid
+# makes it a process group leader (this shell has no job control, so the child
+# is not one already and setsid runs it in place: $! is its PID and PGID).
+setsid /opt/JupyterLab/jupyterlab-desktop --no-sandbox --disable-gpu &
 jlab_pid=$!
 wait "$jlab_pid"
