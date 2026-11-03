@@ -64,7 +64,9 @@ cleanup() {
   # its helpers and the JupyterLab server. Signal the whole group: when Xorg
   # goes away first (the disconnected timeout), JupyterLab Desktop dies without
   # stopping its server, and the server would be left running. The server
-  # stops its kernels (they have their own sessions) on SIGTERM.
+  # stops its kernels (they have their own sessions) on SIGTERM. If it has to be
+  # KILLed, each ipykernel's parent poller (JPY_PARENT_PID, set by
+  # jupyter_client) sees its parent gone and ends the kernel.
   if [ -n "$jlab_pid" ]; then
     kill -TERM -- "-$jlab_pid" 2>/dev/null
     for _ in $(seq 20); do kill -0 -- "-$jlab_pid" 2>/dev/null || break; sleep 0.5; done

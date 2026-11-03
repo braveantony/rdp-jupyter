@@ -115,8 +115,12 @@ elif grep -q ServerApp.token <<<"$procs"; then
 else
   pass "ps -eo args as nobody has no ServerApp.token"
 fi
-[ -n "$pid" ] && pxu "tr '\0' '\n' </proc/$pid/environ | grep -q '^JUPYTER_TOKEN=.'" \
-  && pass "server $pid has JUPYTER_TOKEN in its environ" || bad "no JUPYTER_TOKEN in the environ of server '$pid'"
+token=$([ -n "$pid" ] && pxu "tr '\0' '\n' </proc/$pid/environ | sed -n 's/^JUPYTER_TOKEN=//p'")
+[ -n "$token" ] && pass "server $pid has JUPYTER_TOKEN in its environ" || bad "no JUPYTER_TOKEN in the environ of server '$pid'"
+[ -n "$token" ] && ! grep -qF -- "$token" <<<"$procs" \
+  && pass "the token value is nowhere in ps -eo args as nobody" || bad "token value visible to nobody in ps (or no token)"
+[ -n "$pid" ] && ! podman exec --user nobody "$SERVER" cat "/proc/$pid/environ" >/dev/null 2>&1 \
+  && pass "nobody cannot read /proc/$pid/environ" || bad "nobody can read the environ of server '$pid'"
 
 say limits
 lim=$([ -n "$pid" ] && px "grep '^Max data size' /proc/$pid/limits")
@@ -185,9 +189,10 @@ mark
 login close-c6 :94
 if wait_for 60 '[ -n "$(server_pids)" ] && lab_loaded && title_bar close-c6 :94'; then
   d=$(xorg_displays)
+  [ -n "$d" ] || bad "no Xorg display found before clicking close"
   shot close-c6 :94 close-before
   podman exec "$P-close-c6" sh -c 'DISPLAY=:94 xdotool mousemove 1260 15 click 1'
-  wait_for 10 '! px "pgrep -u bigred -x Xorg -a" | grep -q " :$d " && ! px "test -e /tmp/sess/$d.1000"' \
+  wait_for 10 '[ -n "$d" ] && ! px "pgrep -u bigred -x Xorg -a" | grep -q " :$d " && ! px "test -e /tmp/sess/$d.1000"' \
     && pass "closing the window ended display :$d and removed /tmp/sess/$d.1000" \
     || bad "display :$d still there 10s after clicking close (Xorg: $(xorg_count), sess: $(px 'ls /tmp/sess'))"
 else
@@ -196,17 +201,20 @@ else
 fi
 
 say timeout
-# xorgxrdp, not sesman, kills a disconnected desktop: module/rdpClientCon.c clamps
-# the timeout to at least 60 s and checks every 10 s, so 60 s + 10 s + slack
+# xorgxrdp, not sesman, kills a disconnected desktop. Its check timer runs every
+# 10 s from the disconnect and module/rdpClientCon.c:309 compares with a strict
+# `>`, so at exactly 60 s it does not fire and Xorg ends at the 60 s or 70 s tick.
+# startwm.sh then gives JupyterLab Desktop's process group up to 10 s after TERM
+# before KILL: 70 s + 10 s + slack
 close_all >/dev/null
 if server_start -e DISCONNECTED_TIMEOUT=60; then
   login timeout-c7 :93
   if wait_for 60 '[ -n "$(server_pids)" ]'; then
     client_rm timeout-c7
     t0=$SECONDS
-    wait_for 80 '[ "$(xorg_count)" -eq 0 ] && [ -z "$(server_pids)" ]' \
-      && pass "Xorg and the jupyterlab server gone $((SECONDS - t0))s after disconnecting (limit 80s)" \
-      || bad "after 80s: Xorg count $(xorg_count), servers '$(server_pids)'"
+    wait_for 90 '[ "$(xorg_count)" -eq 0 ] && [ -z "$(server_pids)" ]' \
+      && pass "Xorg and the jupyterlab server gone $((SECONDS - t0))s after disconnecting (limit 90s)" \
+      || bad "after 90s: Xorg count $(xorg_count), servers '$(server_pids)'"
   else
     bad "no jupyterlab server within 60s with DISCONNECTED_TIMEOUT=60"
   fi
