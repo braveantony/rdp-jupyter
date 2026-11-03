@@ -30,7 +30,7 @@
 
 1. **`requirements.txt` 內容很亂**：Windows 換行（CRLF）、只有註解或空行、ConfigMap 存在但是空的。只有註解或空白時視為沒有套件；CRLF 要去掉 → Task 4
 2. **`KERNEL_MEMORY_LIMIT` 設得太小**（例如 `256Mi`）：Jupyter server 自己就起不來，使用者只看到啟動失敗。低於 `1Gi` 時改用 `1Gi` 並印出警告 → Task 2
-3. **用不同色深重新連線**（例如手機上的 RDP 用 16 bit）：`Policy=Default` 是依帳號加色深判斷，會開第二個桌面。第二個桌面要能正常啟動，不能卡在 single-instance → Task 10
+3. **用不同色深重新連線**（例如手機上的 RDP 用 16 bit）：Xorg 桌面的色深固定是 24（F12），所以會接回原本的桌面，而不是開第二個。要能看到原本的 JupyterLab 畫面 → Task 10
 4. **使用者在選單改過語言**：重新登入後要保留使用者的選擇，不能被 `JUPYTER_LOCALE` 蓋掉 → Task 10
 5. **stateful 模式升級映像檔**：PVC 上的額外套件是用舊版 Python/numpy 裝的，`requirements.txt` 沒變也要重裝 → Task 4
 

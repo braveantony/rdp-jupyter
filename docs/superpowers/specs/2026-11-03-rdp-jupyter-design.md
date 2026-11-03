@@ -81,7 +81,7 @@
 | F9 | 支援 `MappingKernelManager.cull_idle_timeout`、`cull_interval`、`cull_busy`、`cull_connected` | `jupyter_server/services/kernels/kernelmanager.py` |
 | F10 | postStart 和 ENTRYPOINT 同時開始；hook 失敗容器就會被殺；hook 可能執行不只一次；hook 執行完之前，容器可能不會進入 Running；失敗時只留下 `FailedPostStartHook` 事件 | Kubernetes 文件 `container-lifecycle-hooks.md` |
 | F11 | tk8s 是 v1.37.1、cgroup v2，沒有設定 `singleProcessOOMKill`，所以容器 OOM 時整個被殺（`memory.oom.group`） | `kubectl get --raw .../configz`；行為要在 e2e 實測確認 |
-| F12 | xrdp 0.10.1 的 `Policy=Default` 等於 `UB`：同一帳號、同一色深的連線會接回原本的桌面 | `/etc/xrdp/sesman.ini` 的註解 |
+| F12 | xrdp 0.10.1 的 `Policy=Default` 等於 `UB`：同一帳號、同一色深的連線會接回原本的桌面。Xorg 類型的桌面色深固定是 24，所以 client 用 16 bit 連線也會接回同一個桌面（Task 10 實測） | `/etc/xrdp/sesman.ini` 的註解；`libipm/scp.c`（`/* bpp is fixed for Xorg session types */`） |
 
 ## 5. 架構
 
@@ -113,7 +113,7 @@
 
 | 路徑 | 用途 |
 |---|---|
-| `$S/xdg` | `XDG_CONFIG_HOME`，也就是這個桌面的 `userData`（F3）。`Policy=Default` 下同一帳號通常只有一個桌面，但色深不同時還是可能有兩個，所以保留這個隔離 |
+| `$S/xdg` | `XDG_CONFIG_HOME`，也就是這個桌面的 `userData`（F3）。`Policy=Default` 下同一帳號只會有一個桌面（F12），這個隔離是保險：萬一同一帳號出現兩個桌面（例如之後改用 `Policy=Separate`），JupyterLab Desktop 的 single-instance 鎖不會讓第二個桌面一啟動就結束 |
 | `$S/xdg/jupyterlab-desktop/settings.json` | 每次啟動都重新寫入（見下表） |
 | `$S/run` | `XDG_RUNTIME_DIR` |
 | `~/.jupyter` | `JLAB_DESKTOP_CONFIG_DIR`（F4）：JupyterLab 的使用者設定（主題、快捷鍵等），在桌面之間共用，stateful 模式會保留 |
