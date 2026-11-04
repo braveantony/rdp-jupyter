@@ -99,6 +99,11 @@ LABEL org.opencontainers.image.source="https://github.com/braveantony/rdp-jupyte
 # - locale-gen runs here, and the locale sources (/usr/share/i18n) go once the
 #   archive is built. C.UTF-8 is built in; startwm.sh picks zh_TW.UTF-8 or
 #   C.UTF-8 per JUPYTER_LOCALE.
+# - ssl-cert (an xrdp dependency) runs make-ssl-cert in its postinst and bakes a
+#   snakeoil self-signed private key under /etc/ssl. xrdp here uses its own
+#   startup-generated certs, not the snakeoil pair, so the key is deleted in
+#   THIS layer (not a later one) so it never reaches any committed layer a
+#   secret scanner could recover it from.
 RUN printf '%s\n' \
       'path-exclude=/usr/share/fonts/opentype/noto/NotoSerifCJK*' \
       'path-exclude=/usr/share/doc/*' \
@@ -114,6 +119,7 @@ RUN printf '%s\n' \
       libegl-mesa0 libglx-mesa0 \
  && sed -i 's/^# *zh_TW.UTF-8 UTF-8/zh_TW.UTF-8 UTF-8/' /etc/locale.gen \
  && locale-gen \
+ && rm -f /etc/ssl/private/ssl-cert-snakeoil.key /etc/ssl/certs/ssl-cert-snakeoil.pem \
  && rm -rf /usr/share/i18n /var/lib/apt/lists/*
 
 ENV LANG=C.UTF-8 \
