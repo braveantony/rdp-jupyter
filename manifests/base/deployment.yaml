@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rdp-jupyter
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # all RDP sessions live inside this one pod
+  selector:
+    matchLabels:
+      app: rdp-jupyter
+  template:
+    metadata:
+      labels:
+        app: rdp-jupyter
+    spec:
+      affinity:
+        nodeAffinity:         # 優先排到 worker；單節點叢集也能排到 control-plane
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
+      containers:
+      - name: desktop
+        image: ghcr.io/braveantony/rdp-jupyter:0.1
+        imagePullPolicy: IfNotPresent
+        # Runs as root: xrdp-sesman needs PAM and setuid to the login accounts.
+        # Xorg, openbox and JupyterLab Desktop run as each account.
+        securityContext:
+          allowPrivilegeEscalation: false
+        lifecycle:
+          postStart:          # install admin-provided extra packages; always exits 0
+            exec:
+              command: ["/opt/rdp-jupyter/install-extra.sh"]
+        env:
+        - name: USERS_FILE           # 帳號檔案，一行一個「帳號:密碼」（由 users Secret 掛載）
+          value: "/etc/rdp-jupyter/users"
+        - name: MAX_SESSIONS         # 桌面數上限（包含斷線中的桌面）；每多一人約加記憶體
+          value: "3"
+        - name: DISCONNECTED_TIMEOUT # 斷線的桌面保留幾秒；最短 60 秒，小於 60 會被改成 60
+          value: "28800"
+        - name: KERNEL_MEMORY_LIMIT  # 每個 kernel 的記憶體硬上限；接受 Mi、Gi 單位
+          value: "2Gi"
+        - name: KERNEL_THREADS       # BLAS/OpenMP 執行緒數
+          value: "2"
+        - name: KERNEL_CULL_IDLE_TIMEOUT  # 閒置 kernel 幾秒後回收；0 代表不回收
+          value: "3600"
+        - name: JUPYTER_LOCALE       # zh-tw 或 en
+          value: "zh-tw"
+        - name: PIP_INDEX_URL        # postStart 安裝額外套件時使用的 index；空字串用 pip 預設
+          value: ""
+        - name: INSTALL_TIMEOUT      # postStart 安裝額外套件的時間上限（秒）
+          value: "900"
+        ports:
+        - name: rdp
+          containerPort: 3389
+        readinessProbe:
+          tcpSocket:
+            port: rdp
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: rdp
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        resources:
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+          limits:             # 以 MAX_SESSIONS×(0.5Gi+KERNEL_MEMORY_LIMIT) 估算，預設 3 人
+            cpu: "4"
+            memory: "8Gi"
+        volumeMounts:
+        - name: users          # 帳號清單：一行一個「帳號:密碼」
+          mountPath: /etc/rdp-jupyter/users
+          subPath: users
+          readOnly: true
+        - name: requirements   # 選用：額外 Python 套件清單（requirements.txt）
+          mountPath: /etc/rdp-jupyter/requirements
+          readOnly: true
+        - name: dshm
+          mountPath: /dev/shm
+      volumes:
+      - name: users
+        secret:
+          secretName: rdp-jupyter-users   # 由 overlay 的 secretGenerator 產生
+          defaultMode: 0400
+      - name: requirements
+        configMap:
+          name: rdp-jupyter-requirements  # 範例見 ../example/requirements
+          optional: true
+      - name: dshm             # 預設 /dev/shm 只有 64MiB，kernel 載入中文字型或大陣列時會崩潰
+        emptyDir:
+          medium: Memory
+          sizeLimit: 1Gi

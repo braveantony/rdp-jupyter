@@ -1,0 +1,13 @@
+# Stateless: /home and /opt/jupyter/extra are emptyDir, so files and any extra
+# packages installed from a requirements ConfigMap are lost when the pod restarts.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: rdp-jupyter
+resources:
+- ../base
+patches:
+- path: volumes-emptydir.yaml
+secretGenerator:
+- name: rdp-jupyter-users
+  files:
+  - users=users.txt

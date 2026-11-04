@@ -1,0 +1,12 @@
+# Reproducible variant: every package pinned to an exact version with sha256
+# hashes. When install-extra.sh sees a "--hash=" it runs pip with
+# --require-hashes, so EVERY requirement (and its transitive deps) must be
+# pinned and hashed here. Generate this file with:
+#   uv pip compile --generate-hashes requirements.txt -o requirements-hashed.txt
+# To use it, point the configMapGenerator's `files:` at this file instead
+# (keep the published key as requirements.txt). The hashes below are examples;
+# replace them with the real output of pip-compile for your versions.
+pandas==2.2.2 \
+    --hash=sha256:0000000000000000000000000000000000000000000000000000000000000000
+matplotlib==3.9.0 \
+    --hash=sha256:1111111111111111111111111111111111111111111111111111111111111111

@@ -1,0 +1,11 @@
+# kube-linter config for rdp-jupyter. Run via test/deploy/lint.test.sh.
+# Each excluded check below is a deliberate, documented exception.
+checks:
+  exclude:
+    # xrdp-sesman needs PAM and must setuid from root into each login account,
+    # so the desktop container runs as root by design (see deployment.yaml).
+    - run-as-non-root
+    # The image writes at runtime all over the filesystem: xrdp sockets under
+    # /var/run, per-user $HOME, and the extra-packages tree under
+    # /opt/jupyter/extra. A read-only root filesystem would break startup.
+    - no-read-only-root-fs
