@@ -41,8 +41,12 @@ for o in stateless stateful example/requirements; do
   expect "$name" "limits 4 / 8Gi" 'ctr["resources"]["limits"] == {"cpu": "4", "memory": "8Gi"}'
   expect "$name" "requests 1 / 2Gi" 'ctr["resources"]["requests"] == {"cpu": "1", "memory": "2Gi"}'
   expect "$name" "/dev/shm is a 1Gi Memory emptyDir" 'vol_at("/dev/shm").get("emptyDir") == {"medium": "Memory", "sizeLimit": "1Gi"}'
-  expect "$name" "users Secret at /etc/rdp-jupyter/users" \
-    'vol_at("/etc/rdp-jupyter/users")["secret"]["secretName"].startswith("rdp-jupyter-users") and mounts["/etc/rdp-jupyter/users"]["subPath"] == "users" and any(s["metadata"]["name"].startswith("rdp-jupyter-users") and "users" in s["data"] for s in kind("Secret"))'
+  expect "$name" "image is ghcr.io/braveantony/rdp-jupyter:0.1" \
+    'ctr["image"] == "ghcr.io/braveantony/rdp-jupyter:" + open("VERSION").read().strip()'
+  expect "$name" "named port rdp maps to containerPort 3389" \
+    'ctr["ports"][0]["name"] == "rdp" and ctr["ports"][0]["containerPort"] == 3389'
+  expect "$name" "users Secret at /etc/rdp-jupyter/users, defaultMode 0400" \
+    'vol_at("/etc/rdp-jupyter/users")["secret"]["secretName"].startswith("rdp-jupyter-users") and vol_at("/etc/rdp-jupyter/users")["secret"]["defaultMode"] == 256 and mounts["/etc/rdp-jupyter/users"]["subPath"] == "users" and any(s["metadata"]["name"].startswith("rdp-jupyter-users") and "users" in s["data"] for s in kind("Secret"))'
   expect "$name" "optional requirements ConfigMap at /etc/rdp-jupyter/requirements" \
     'vol_at("/etc/rdp-jupyter/requirements")["configMap"]["name"].startswith("rdp-jupyter-requirements") and vol_at("/etc/rdp-jupyter/requirements")["configMap"]["optional"] is True'
   expect "$name" "postStart runs install-extra.sh" \
@@ -65,10 +69,10 @@ expect stateful "home PVC 10Gi RWO without storageClassName" \
   '[p for p in kind("PersistentVolumeClaim") if p["metadata"]["name"] == "rdp-jupyter-home"][0]["spec"]["resources"]["requests"]["storage"] == "10Gi" and [p for p in kind("PersistentVolumeClaim") if p["metadata"]["name"] == "rdp-jupyter-home"][0]["spec"]["accessModes"] == ["ReadWriteOnce"] and "storageClassName" not in [p for p in kind("PersistentVolumeClaim") if p["metadata"]["name"] == "rdp-jupyter-home"][0]["spec"]'
 expect stateful "extra PVC 5Gi RWO without storageClassName" \
   '[p for p in kind("PersistentVolumeClaim") if p["metadata"]["name"] == "rdp-jupyter-extra"][0]["spec"]["resources"]["requests"]["storage"] == "5Gi" and [p for p in kind("PersistentVolumeClaim") if p["metadata"]["name"] == "rdp-jupyter-extra"][0]["spec"]["accessModes"] == ["ReadWriteOnce"] and "storageClassName" not in [p for p in kind("PersistentVolumeClaim") if p["metadata"]["name"] == "rdp-jupyter-extra"][0]["spec"]'
-expect example-requirements "generated hashed ConfigMap rdp-jupyter-requirements-* with key requirements.txt" \
-  'any(c["metadata"]["name"] != "rdp-jupyter-requirements" and c["metadata"]["name"].startswith("rdp-jupyter-requirements-") and "requirements.txt" in c["data"] for c in kind("ConfigMap"))'
-expect example-requirements "Deployment references the generated ConfigMap name" \
-  'vol_at("/etc/rdp-jupyter/requirements")["configMap"]["name"] in [c["metadata"]["name"] for c in kind("ConfigMap") if c["metadata"]["name"].startswith("rdp-jupyter-requirements-")]'
+expect example-requirements "generated hash-suffixed ConfigMap rdp-jupyter-requirements-<hash> with key requirements.txt" \
+  'any(__import__("re").fullmatch(r"rdp-jupyter-requirements-[a-z0-9]{8,}", c["metadata"]["name"]) and "requirements.txt" in c["data"] for c in kind("ConfigMap"))'
+expect example-requirements "Deployment references the exact generated ConfigMap name" \
+  'vol_at("/etc/rdp-jupyter/requirements")["configMap"]["name"] in [c["metadata"]["name"] for c in kind("ConfigMap") if __import__("re").fullmatch(r"rdp-jupyter-requirements-[a-z0-9]{8,}", c["metadata"]["name"])]'
 expect example-requirements "/home is an emptyDir (built on stateless)" '"emptyDir" in vol_at("/home")'
 
 for o in stateless stateful; do

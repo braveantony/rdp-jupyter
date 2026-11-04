@@ -5,7 +5,8 @@ checks:
     # xrdp-sesman needs PAM and must setuid from root into each login account,
     # so the desktop container runs as root by design (see deployment.yaml).
     - run-as-non-root
-    # The image writes at runtime all over the filesystem: xrdp sockets under
+    # accounts.sh creates the login accounts at startup, writing /etc/passwd,
+    # /etc/shadow and /etc/group; the image also writes xrdp sockets under
     # /var/run, per-user $HOME, and the extra-packages tree under
     # /opt/jupyter/extra. A read-only root filesystem would break startup.
     - no-read-only-root-fs

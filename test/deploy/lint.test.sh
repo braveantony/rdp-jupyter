@@ -60,11 +60,50 @@ if ! kubectl version --request-timeout=10s >/dev/null 2>&1; then
   bad "no reachable cluster for --dry-run=server (cannot verify Pod Security baseline)"
   finish
 fi
+# PSA `enforce` evaluates Pod objects only; a Deployment dry run never creates a
+# Pod, so enforce alone would pass anything. `warn`/`audit` DO evaluate the pod
+# templates of workload controllers on a server dry run, so label all three and
+# grep the dry-run output for a Warning. Keep enforce for defence in depth.
 ns="rdp-jupyter-lint-$$-${RANDOM}"
 kubectl create namespace "$ns" >/dev/null 2>&1 \
-  && kubectl label namespace "$ns" pod-security.kubernetes.io/enforce=baseline >/dev/null 2>&1 \
+  && kubectl label namespace "$ns" \
+       pod-security.kubernetes.io/enforce=baseline \
+       pod-security.kubernetes.io/warn=baseline \
+       pod-security.kubernetes.io/audit=baseline >/dev/null 2>&1 \
   || { bad "cannot create throwaway namespace $ns"; finish; }
 trap 'kubectl delete namespace "$ns" --wait=false >/dev/null 2>&1; rm -rf "$TMP"' EXIT
+
+# Negative control: a privileged Deployment MUST draw a baseline Warning here.
+# If it does not, the warn label is not wired up and every positive assertion
+# below is meaningless, so fail loudly and stop.
+neg=$(kubectl apply --dry-run=server -n "$ns" -f - 2>&1 <<'NEG'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: psa-negative-control
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: psa-negative-control
+  template:
+    metadata:
+      labels:
+        app: psa-negative-control
+    spec:
+      containers:
+      - name: c
+        image: busybox:1.36
+        securityContext:
+          privileged: true
+NEG
+)
+if grep -qiE 'warning.*(podsecurity|baseline|privileged)' <<<"$neg"; then
+  pass "negative control: privileged Deployment draws a baseline Warning (check has teeth)"
+else
+  bad "negative control did NOT warn; PSA warn=baseline is not evaluating pod templates, positive checks are vacuous: $(tail -4 <<<"$neg")"
+  finish
+fi
 
 for o in $OVERLAYS; do
   name=${o//\//-}
