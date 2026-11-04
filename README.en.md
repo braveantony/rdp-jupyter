@@ -10,7 +10,7 @@ Several people can use it at once, and each account gets its own desktop. The de
 - Use `<service>.<namespace>` (for example `postgres.default`) in a notebook to reach in-cluster PostgreSQL, MinIO and other services. See [data-access.md](docs/data-access.md) (Traditional Chinese) for how and which packages to add.
 - Only one NodePort (a fixed port Kubernetes opens on every node; here 30391) is exposed; no HTTP, Ingress or TLS.
 - The Remote Desktop client built into Windows is enough. You don't need to install Jupyter or Python on your own computer.
-- Several accounts, or the same account more than once, can be logged in at the same time; accounts cannot see each other's home directories or notebooks in this Pod.
+- Several different accounts can be logged in at the same time, each with its own desktop, and they cannot see each other's home directories or notebooks in this Pod. Logging in with the *same* account from a second machine reattaches to its existing desktop and drops the first connection (see [Reconnecting](#4-reconnecting-after-a-disconnect)); it does not open a second desktop.
 - The UI is Traditional Chinese by default and switches to English with `JUPYTER_LOCALE`.
 - To keep your notebooks and self-installed packages, use stateful mode: `/home` lives on a PVC (persistent storage requested from the cluster), so your work survives when the Pod is recreated.
 
@@ -78,11 +78,11 @@ df.head()
 
 Reading and writing MinIO/S3, bringing notebooks in with Git, and which packages each example needs are in the [data access guide](docs/data-access.md) (Traditional Chinese).
 
-> This desktop **cannot take files dragged in from your own computer** (Remote Desktop drive redirection is disabled; see the [data access guide](docs/data-access.md) for why). Data moves in and out through cluster services or Git. The text clipboard is unaffected, so you can still copy and paste code.
+> This desktop **cannot exchange files with your own computer** (both Remote Desktop drive redirection and clipboard file transfer are disabled, in and out; see the [data access guide](docs/data-access.md) for why). Data moves in and out through cluster services or Git. The text clipboard is unaffected, so you can still copy and paste text such as code.
 
 ### 4. Reconnecting after a disconnect
 
-Unlike rdp-vscode, here you **reattach to the same desktop after a disconnect**: if the network drops or you close the Remote Desktop window by accident, log in again with the same account and you are back on the original desktop, with running kernels and results intact. A disconnected desktop is kept for 8 hours by default (`DISCONNECTED_TIMEOUT`) before it is cleaned up.
+You **reattach to the same desktop after a disconnect**: if the network drops or you close the Remote Desktop window by accident, log in again with the same account and you are back on the original desktop, with running kernels and results intact. A disconnected desktop is kept for 8 hours by default (`DISCONNECTED_TIMEOUT`) before it is cleaned up.
 
 The trade-off is that one account cannot have two desktops at once: a second login reattaches to the first desktop and ends the first connection.
 
@@ -113,13 +113,13 @@ First clone this repo as described in the [install guide](docs/install.md#kustom
 | `RDP_USER` | `bigred` | Login account when there is no account file (UID 1000); on Kubernetes the file always exists, so it is not used |
 | `RDP_PASSWORD` | — | Its password, required in that case; not used on Kubernetes |
 | `MAX_SESSIONS` | `3` | Maximum concurrent desktops, all accounts together. **A disconnected desktop counts** until it is cleaned up, so it keeps holding a slot until `DISCONNECTED_TIMEOUT` expires |
-| `DISCONNECTED_TIMEOUT` | `28800` | How long a disconnected desktop is kept (8 hours by default) before cleanup, which discards its running kernels and unsaved content. **Minimum 60 seconds**: xorgxrdp cleans up disconnected desktops and treats any value below 60 as 60, so a smaller value is raised to 60 with a warning in the log |
+| `DISCONNECTED_TIMEOUT` | `28800` | How long a disconnected desktop is kept (8 hours by default) before cleanup, which discards its running kernels and unsaved content. **Minimum 60 seconds**: xorgxrdp cleans up disconnected desktops and treats any value from 1 to 59 as 60, so a smaller value is raised to 60 with a warning in the log. `0` or a non-numeric value is rejected and falls back to the default `28800` |
 | `KERNEL_MEMORY_LIMIT` | `2Gi` | Per-kernel memory hard limit (`RLIMIT_DATA`); an oversized allocation raises `MemoryError` in that cell instead of killing the kernel. Accepts `Mi` and `Gi`; a value below `1Gi` is raised to `1Gi` (OpenBLAS and friends fail to load under a smaller cap) with a warning |
 | `KERNEL_THREADS` | `2` | BLAS/OpenMP thread count (`OPENBLAS_NUM_THREADS` and friends), so one kernel does not take every CPU |
 | `KERNEL_CULL_IDLE_TIMEOUT` | `3600` | Seconds before an idle kernel is culled to free memory; `0` disables culling. A busy kernel is never culled |
 | `JUPYTER_LOCALE` | `zh-tw` | UI language: `zh-tw` or `en`. This is only the default; a language a user picks in the menu wins |
 | `PIP_INDEX_URL` | (pip default) | pip index used by the postStart extra-package install; point it at an internal mirror if needed |
-| `INSTALL_TIMEOUT` | `900` | Time limit in seconds for the postStart extra-package install; on timeout the install is abandoned and a notice pops up on the desktop, but Pod startup is unaffected |
+| `INSTALL_TIMEOUT` | `900` | Time limit in seconds for the postStart extra-package install. The container is not Ready until the install finishes, so this value delays when users can connect; on timeout the install is abandoned and a notice pops up on the desktop, but it does not fail Pod startup |
 
 Extra packages — whether admin-provided through a `requirements.txt` ConfigMap or installed by a user with `%pip install --user` — are covered in the [user guide](docs/user-guide.md) (Traditional Chinese) and `manifests/example/requirements`.
 

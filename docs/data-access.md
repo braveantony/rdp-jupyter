@@ -9,7 +9,14 @@ notebook 的 kernel 在叢集的 Pod 裡執行，所以可以用 `<service>.<nam
 - **自己裝**：在 notebook 執行 `%pip install --user <套件>`，裝完到 **Kernel → Restart Kernel** 再 import。stateless 模式下 Pod 重建要重裝。
 - **請管理者裝**：加進 `requirements.txt` 的 ConfigMap，所有人共用（見[安裝手冊](install.md#管理者提供額外-python-套件)）。
 
-連線用的帳號密碼、endpoint、bucket 名稱等請向管理者索取；下面的範例值要換成實際的。不要把密碼寫死在 notebook 裡提交出去，可以改用環境變數或叢集的 Secret。
+連線用的帳號密碼、endpoint、bucket 名稱等請向管理者索取；下面的範例值要換成實際的。不要把密碼寫死在 notebook 裡，否則很容易跟著 notebook 一起 push 出去。這個桌面裡設不了環境變數、也掛不了叢集的 Secret，建議的做法是把密碼放在家目錄下的一個小檔案（例如 `~/secrets.json`），把它的權限設成 `0700`（`chmod 700 ~/secrets.json`，別的帳號讀不到），在 notebook 裡讀進來，並把這個檔案排除在 Git 之外（寫進 `.gitignore`）：
+
+```python
+import json, pathlib
+
+creds = json.loads(pathlib.Path.home().joinpath("secrets.json").read_text())
+# creds["pg_password"] 等，下面的範例用得到
+```
 
 ## 為什麼不能從本機拖檔案進來（D9）
 
@@ -67,7 +74,7 @@ s3fs
 pyarrow
 ```
 
-`s3fs` 讓 pandas 認得 `s3://` 路徑；`pyarrow` 用來讀寫 Parquet（讀 CSV 可以不裝）。
+`s3fs` 讓 pandas 認得 `s3://` 路徑；`pyarrow` 用來讀寫 Parquet（一種以欄為單位、壓縮過的表格檔案格式，分析大資料時比 CSV 省空間也快很多；讀 CSV 可以不裝）。
 
 **讀取**：
 
@@ -127,9 +134,9 @@ porcelain.commit("notebooks", message=b"Update analysis", author=b"Analyst <anal
 porcelain.push("notebooks", "http://gitea.default:3000/team/notebooks.git", b"refs/heads/main")
 ```
 
-- 需要帳密時，用 `porcelain.clone(..., username="...", password="...")`、`porcelain.push(..., username="...", password="...")` 傳。密碼請別寫死在 notebook 裡。
+- 需要帳密時，用 `porcelain.clone(..., username="...", password="...")`、`porcelain.push(..., username="...", password="...")` 傳。密碼請別寫死在 notebook 裡，照本文件開頭提到的家目錄小檔案方式讀進來。
+- **一定要用 HTTP／HTTPS 的 repo 網址**（像上面的 `http://…`）。這個映像檔**沒有 `ssh` 執行檔**，所以 dulwich 的 SSH 連線（`git@…` 或 `ssh://…` 的網址）在這裡用不了。
 - 連外部的 GitHub 等服務時，Pod 要連得到外網，請向管理者確認叢集的網路政策。
-- dulwich 也能處理私有 repo 的 HTTP 認證；SSH 協定需要額外設定金鑰，叢集內用 HTTP 通常比較簡單。
 
 ## 小結
 

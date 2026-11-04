@@ -43,7 +43,7 @@
 用 Jupyter 官方的桌面版 JupyterLab Desktop（目前固定 4.6.3-1）。使用者要的是「獨立應用程式」的外觀，spike 也證實可行。升級流程見[建置手冊](../build-image.md#升級-jupyterlab-desktop每月例行)。
 
 #### D11 基底映像檔：`debian:trixie-slim`，從頭建置
-不以 rdp-vscode 為基底，從頭建置以控制大小；trixie 跟 tk8s 節點的 OS 一致。
+不以 rdp-vscode 為基底，從頭建置以控制大小；trixie（Debian 13 的代號）跟 tk8s 節點的 OS 一致。
 
 #### D12 Python：Debian 的 python3（3.13）建 venv
 不用 JupyterLab Desktop 內建的 conda 環境（1.0 GB），改用精簡的 venv（實測約 234 MB）。venv 用 `--system-site-packages` 建立，這樣才允許使用者 `%pip install --user`。
@@ -74,13 +74,13 @@ RDP 傳檔需要 FUSE（`/dev/fuse` + `SYS_ADMIN`），會打破 UID 隔離、�
 sesman 用 `Policy=Default`：同一帳號斷線後重新連線會接回原本的桌面，斷線的桌面預設 8 小時（`DISCONNECTED_TIMEOUT`）後清掉。資料分析最怕運算結果不見，所以選擇可接回；代價是同一帳號不能同時開兩個桌面。`MAX_SESSIONS` 的計算包含斷線中的桌面。
 
 #### D7 每個 kernel 有記憶體硬上限
-在 venv 的 `activate` 設 `RLIMIT_DATA`（`KERNEL_MEMORY_LIMIT`，預設 2Gi），由 server 和 kernel 繼承、使用者不能調高。避免一個人觸發 OOM 連帶殺掉整個 Pod。超過上限的配置會跳 `MemoryError`，kernel 本身不死。
+在 venv 的 `activate` 設 `RLIMIT_DATA`（`KERNEL_MEMORY_LIMIT`，預設 2Gi），由 server 和 kernel 繼承、使用者不能調高。避免一個人觸發 OOM（記憶體用盡時系統強制終止程式）連帶殺掉整個 Pod。超過上限的配置會跳 `MemoryError`，kernel 本身不死。
 
 ## 威脅模型與風險
 
 - **威脅模型**（帳號之間的隔離、token patch、Electron sandbox、不開檔案傳輸的理由）整理在[架構文件](../architecture.md#威脅模型)，對應 spec 第 6 節，由 `test/image/isolation.test.sh` 驗證。
 - **已接受的安全風險**（目前是 JupyterLab 剪貼簿 XSS CVE-2026-102831，等上游 JupyterLab Desktop 出修補版）記在 [docs/ops/2026-11-04-accepted-risks.md](../ops/2026-11-04-accepted-risks.md)。
-- **主要風險與對策**（上游改程式害 token patch 失效、一個人開很多 kernel 害整個 Pod OOM、斷線桌面佔名額、JupyterLab Desktop 更新慢等）見 spec 第 13 節。
+- **主要風險與對策**（上游改程式害 token patch 失效、一個人開很多 kernel 害整個 Pod OOM、斷線桌面占名額、JupyterLab Desktop 更新慢等）見 spec 第 13 節。
 
 ## 驗收標準
 
@@ -92,6 +92,6 @@ spec 第 12 節列出 A1～A11：unit 測試、映像檔大小、不開畫面跑
 |---|---|
 | **rdp-jupyter Pod** | 本專案的 Pod，裡面跑 xrdp 和 JupyterLab Desktop，namespace 是 `rdp-jupyter` |
 | **JupyterLab Desktop** | Jupyter 官方的 Electron 桌面版 |
-| **kernel** | 跑 notebook 程式碼的 Python 行程，受記憶體上限和執行緒數限制 |
+| **kernel** | 跑 notebook 程式碼的 Python process，受記憶體上限和執行緒數限制 |
 | **stateless / stateful** | 兩種部署方式：Pod 重建後 home 和額外套件會重置／會保留 |
 | **tk8s** | 目前開發用的叢集（1 個 control-plane 加 2 個 worker） |

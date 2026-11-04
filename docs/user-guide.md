@@ -49,21 +49,21 @@ kernel 在 Pod 裡，所以在 notebook 裡可以用 `<service>.<namespace>` 直
 
 ## 5. 記憶體與長時間運算
 
-- **每個 kernel 有記憶體上限**（預設 2 GiB，由管理者的 `KERNEL_MEMORY_LIMIT` 決定）。超過時那一格會跳 `MemoryError`，但 kernel 不會死，你可以縮小資料再試。
-- **狀態列會顯示用量**：JupyterLab 視窗左下角的 `Mem: … / 2048.00 MB` 就是目前這個桌面的記憶體用量和上限。
+- **每個 kernel 有記憶體上限**（預設 2 GiB，由管理者的 `KERNEL_MEMORY_LIMIT` 決定）。這個上限是**每個 kernel 各自**計算的，超過時那一格會跳 `MemoryError`，但 kernel 不會死，你可以縮小資料再試。
+- **狀態列會顯示用量**：JupyterLab 視窗左下角的 `Mem: … / 2048.00 MB`，左邊是你這個桌面所有 kernel **加總**的記憶體用量，右邊（`2048.00 MB`）是單一 kernel 的上限。所以同時開好幾個 kernel 時，左邊的總量是有可能超過右邊那個數字的——右邊只是每個 kernel 各自的天花板，不是總量的上限。
 - **閒置的 kernel 會自動回收**（預設閒置 1 小時後），釋放記憶體。正在執行的不會被回收。被回收後重新執行儲存格會啟動新的 kernel，但之前算出來的變數會不見，要從頭跑一次。
-- **所有人共用同一個 Pod 的記憶體**：一個人開很多 kernel、或很多人同時跑大運算，加起來超過 Pod 上限時，整個 Pod 會被重啟，**所有人的桌面都會中斷、未存檔的內容會消失**。跑大運算前先存檔，用完的 notebook 記得關掉 kernel（檔案瀏覽器旁的「Running Terminals and Kernels」分頁可以關）。
+- **所有人共用同一個 Pod 的記憶體**：一個人開很多 kernel，或很多人同時跑大運算，加起來超過 Pod 上限時，整個 Pod 會被重啟，**所有人的桌面都會中斷、未存檔的內容會消失**。跑大運算前先存檔，用完的 notebook 記得關掉 kernel（檔案瀏覽器旁的「Running Terminals and Kernels」分頁可以關）。
 
 ## 6. 斷線與重新連線
 
-- **斷線後可以接回原本的桌面**：網路斷掉、或不小心關掉遠端桌面視窗，重新用同一個帳號登入，就會回到原本的桌面，正在執行的 kernel 和算到一半的結果都還在。桌面預設保留 8 小時（由管理者的 `DISCONNECTED_TIMEOUT` 決定），逾時才清掉。
+- **斷線後可以接回原本的桌面**：網路斷掉，或不小心關掉遠端桌面視窗，重新用同一個帳號登入，就會回到原本的桌面，正在執行的 kernel 和算到一半的結果都還在。桌面預設保留 8 小時（由管理者的 `DISCONNECTED_TIMEOUT` 決定），逾時才清掉。
 - **同一個帳號不能同時開兩個桌面**：你在另一台電腦用同一個帳號登入時，會接回原本那個桌面，原本的連線隨即中斷。要兩個獨立的桌面，請用不同帳號。
 - **主動結束**：關掉 JupyterLab Desktop 的視窗（右上角的關閉按鈕）就會登出並中斷遠端桌面。下次登入是全新的桌面。
 
 ## 7. 多人同時使用
 
 - 每個帳號登入都有自己的桌面、自己的 kernel 和自己的家目錄，彼此看不到對方的 notebook。
-- 同時最多 3 個桌面（所有帳號合計，由管理者的 `MAX_SESSIONS` 決定），超過時登入會失敗。**剛斷線但還沒逾時清掉的桌面也佔一個名額**，所以如果有人斷線沒登出，名額會被佔著直到逾時。
+- 同時最多 3 個桌面（所有帳號合計，由管理者的 `MAX_SESSIONS` 決定），超過時登入會失敗。**剛斷線但還沒逾時清掉的桌面也占一個名額**，所以如果有人斷線沒登出，名額會被占著直到逾時。
 
 ## 8. 使用時要知道的事
 
@@ -79,7 +79,7 @@ kernel 在 Pod 裡，所以在 notebook 裡可以用 `<service>.<namespace>` 直
 | `User does not exist, or could not be authenticated` | RDP 帳號或密碼錯誤 | 向管理者確認帳密 |
 | 登入失敗、連不進去 | 已經有 3 個桌面在使用（含斷線未清的） | 等別人登出；斷線的桌面要等 `DISCONNECTED_TIMEOUT` 逾時才釋放 |
 | 連上後畫面一片空白、JupyterLab 沒出現 | Pod 的 `/dev/shm` 太小，Electron 啟動時崩潰 | 請管理者確認部署有掛 1 GiB 的 `/dev/shm`（見 [architecture.md](architecture.md)） |
-| 開 notebook 跳一個「額外套件安裝失敗」的視窗 | 管理者的 `requirements.txt` 裝不起來（套件名稱錯、連不到 PyPI 等） | 不影響你用預裝的套件；請管理者看 Pod log 修正 |
+| 登入後桌面上跳出「額外套件安裝失敗」的視窗 | 管理者的 `requirements.txt` 裝不起來（套件名稱錯、連不到 PyPI 等）；這個通知在你登入進桌面時就會跳出 | 不影響你用預裝的套件；請管理者看 Pod log 修正 |
 | 某一格跳 `MemoryError` | 這個 kernel 的記憶體到上限了 | 縮小資料、分批處理，或請管理者調高 `KERNEL_MEMORY_LIMIT` |
 | 重新連線後 kernel 的變數不見了 | kernel 閒置被回收，或 Pod 被重啟過 | 從頭重新執行 notebook；存檔的 `.ipynb` 不會遺失 |
 | `%pip install --user` 裝好了卻 import 不到 | kernel 還是舊的 | 選單 **Kernel → Restart Kernel** 後再 import |
