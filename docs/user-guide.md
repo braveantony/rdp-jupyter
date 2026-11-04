@@ -49,14 +49,14 @@ kernel 在 Pod 裡，所以在 notebook 裡可以用 `<service>.<namespace>` 直
 
 ## 5. 記憶體與長時間運算
 
-- **每個 kernel 有記憶體上限**（預設 2 GiB，由管理者的 `KERNEL_MEMORY_LIMIT` 決定）。這個上限是**每個 kernel 各自**計算的，超過時那一格會跳 `MemoryError`，但 kernel 不會死，你可以縮小資料再試。
+- **每個 kernel 有記憶體上限**（預設 2 GiB，由管理者的 `KERNEL_MEMORY_LIMIT` 決定）。這個上限是**每個 kernel 各自**計算的，超過時通常那一格會跳 `MemoryError`、kernel 多半能繼續用，縮小資料再試即可；但這不是絕對保證，記憶體壓力大時 kernel 仍可能中斷，所以請定期存檔。
 - **狀態列會顯示用量**：JupyterLab 視窗左下角的 `Mem: … / 2048.00 MB`，左邊是你這個桌面所有 kernel **加總**的記憶體用量，右邊（`2048.00 MB`）是單一 kernel 的上限。所以同時開好幾個 kernel 時，左邊的總量是有可能超過右邊那個數字的——右邊只是每個 kernel 各自的天花板，不是總量的上限。
 - **閒置的 kernel 會自動回收**（預設閒置 1 小時後），釋放記憶體。正在執行的不會被回收。被回收後重新執行儲存格會啟動新的 kernel，但之前算出來的變數會不見，要從頭跑一次。
 - **所有人共用同一個 Pod 的記憶體**：一個人開很多 kernel，或很多人同時跑大運算，加起來超過 Pod 上限時，整個 Pod 會被重啟，**所有人的桌面都會中斷、未存檔的內容會消失**。跑大運算前先存檔，用完的 notebook 記得關掉 kernel（檔案瀏覽器旁的「Running Terminals and Kernels」分頁可以關）。
 
 ## 6. 斷線與重新連線
 
-- **斷線後可以接回原本的桌面**：網路斷掉，或不小心關掉遠端桌面視窗，重新用同一個帳號登入，就會回到原本的桌面，正在執行的 kernel 和算到一半的結果都還在。桌面預設保留 8 小時（由管理者的 `DISCONNECTED_TIMEOUT` 決定），逾時才清掉。
+- **斷線後可以接回原本的桌面**（前提是這個桌面還沒逾時被清掉、而且 Pod 沒有重建過）：網路斷掉，或不小心關掉遠端桌面視窗，重新用同一個帳號登入，就會回到原本的桌面，正在執行的 kernel 和算到一半的結果都還在。桌面預設保留 8 小時（由管理者的 `DISCONNECTED_TIMEOUT` 決定），逾時才清掉；Pod 重建（例如管理者改設定重新部署）後，所有桌面都會消失，登入就是全新的桌面。
 - **同一個帳號不能同時開兩個桌面**：你在另一台電腦用同一個帳號登入時，會接回原本那個桌面，原本的連線隨即中斷。要兩個獨立的桌面，請用不同帳號。
 - **主動結束**：關掉 JupyterLab Desktop 的視窗（右上角的關閉按鈕）就會登出並中斷遠端桌面。下次登入是全新的桌面。
 
@@ -81,5 +81,5 @@ kernel 在 Pod 裡，所以在 notebook 裡可以用 `<service>.<namespace>` 直
 | 連上後畫面一片空白、JupyterLab 沒出現 | Pod 的 `/dev/shm` 太小，Electron 啟動時崩潰 | 請管理者確認部署有掛 1 GiB 的 `/dev/shm`（見 [architecture.md](architecture.md)） |
 | 登入後桌面上跳出「額外套件安裝失敗」的視窗 | 管理者的 `requirements.txt` 裝不起來（套件名稱錯、連不到 PyPI 等）；這個通知在你登入進桌面時就會跳出 | 不影響你用預裝的套件；請管理者看 Pod log 修正 |
 | 某一格跳 `MemoryError` | 這個 kernel 的記憶體到上限了 | 縮小資料、分批處理，或請管理者調高 `KERNEL_MEMORY_LIMIT` |
-| 重新連線後 kernel 的變數不見了 | kernel 閒置被回收，或 Pod 被重啟過 | 從頭重新執行 notebook；存檔的 `.ipynb` 不會遺失 |
+| 重新連線後 kernel 的變數不見了 | kernel 閒置被回收，或 Pod 被重啟過 | 從頭重新執行 notebook。若只是 kernel 被回收，已存檔的 `.ipynb` 還在，只是算出來的變數要重算；若是 Pod 被重建，stateless 模式連已存檔的 notebook 也會跟著家目錄一起消失（stateful 模式的 `/home` 才會保留），所以重要的 notebook 請隨時用 Git 推出去 |
 | `%pip install --user` 裝好了卻 import 不到 | kernel 還是舊的 | 選單 **Kernel → Restart Kernel** 後再 import |

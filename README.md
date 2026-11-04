@@ -67,7 +67,7 @@ curl -fsSL https://raw.githubusercontent.com/braveantony/rdp-jupyter/main/instal
 
 ### 3. 連叢集內的服務
 
-kernel 在 Pod 裡執行，所以在 notebook 裡可以用 `<service>.<namespace>` 直接連叢集內的服務。例如用 pandas 查詢 namespace `default` 裡的 PostgreSQL：
+kernel 在 Pod 裡執行，所以在 notebook 裡可以用 `<service>.<namespace>` 直接連叢集內的服務。例如用 pandas 查詢 namespace `default` 裡的 PostgreSQL（這個範例要先裝 `sqlalchemy`、`psycopg2-binary`，並把連線資訊換成實際值；安裝方式和密碼怎麼放見[資料存取指南](docs/data-access.md)）：
 
 ```python
 import pandas as pd
@@ -84,9 +84,9 @@ df.head()
 
 ### 4. 斷線後接回
 
-**斷線後可以接回原本的桌面**：網路斷掉或不小心關掉遠端桌面視窗，重新用同一個帳號登入，就會回到原本的桌面，正在執行的 kernel 和運算結果都還在。斷線的桌面預設保留 8 小時（`DISCONNECTED_TIMEOUT`），逾時才清掉。
+**斷線後可以接回原本的桌面**（前提是這個桌面還沒逾時被清掉、而且 Pod 沒有重建過）：網路斷掉或不小心關掉遠端桌面視窗，重新用同一個帳號登入，就會回到原本的桌面，正在執行的 kernel 和運算結果都還在。斷線的桌面預設保留 8 小時（`DISCONNECTED_TIMEOUT`），逾時才清掉；Pod 一旦重建，所有桌面都會消失，登入就是全新的桌面。
 
-代價是同一個帳號不能同時開兩個桌面：第二次登入會接回第一個桌面，第一個連線隨即中斷。
+代價是同一個帳號不能同時開兩個桌面：桌面還在的情況下，第二次登入會接回原桌面，原本的連線隨即中斷。
 
 要主動結束桌面，關掉 JupyterLab Desktop 的視窗（右上角的關閉按鈕）就會登出。
 
@@ -114,14 +114,19 @@ df.head()
 | `USERS_FILE` | `/etc/rdp-jupyter/users` | 帳號檔案，一行一個 `帳號:密碼`；Kubernetes 上一定會由 Secret `rdp-jupyter-users-*` 掛載 |
 | `RDP_USER` | `bigred` | 沒有帳號檔案時的登入帳號（UID 1000）；Kubernetes 上一定有帳號檔案，用不到 |
 | `RDP_PASSWORD` | — | 沒有帳號檔案時的登入密碼，此時必填；Kubernetes 上用不到 |
-| `MAX_SESSIONS` | `3` | 可以同時存在的桌面數上限（所有帳號合計）。**斷線後還沒被清掉的桌面也算在內**，所以斷線的桌面會一直占用名額，直到 `DISCONNECTED_TIMEOUT` 逾時 |
-| `DISCONNECTED_TIMEOUT` | `28800` | 斷線的桌面保留幾秒（預設 8 小時），逾時後清掉，裡面正在執行的 kernel 和未存檔內容都會消失。**最短 60 秒**：xrdp 由 xorgxrdp 負責清桌面，它會把 1～59 的值當成 60，所以設小於 60 時會被改成 60 並在 log 印出警告。`0` 或非數字等不合法的值則改用預設 `28800` |
-| `KERNEL_MEMORY_LIMIT` | `2Gi` | 每個 kernel 的記憶體硬上限（`RLIMIT_DATA`），超過會在那一格跳 `MemoryError`，kernel 本身不會死。接受 `Mi`、`Gi` 單位；小於 `1Gi` 會被改成 `1Gi`（OpenBLAS 等套件在更小的上限下會載入失敗）並印出警告 |
-| `KERNEL_THREADS` | `2` | 數值運算（BLAS／OpenMP，numpy、pandas 底層用來做矩陣運算的函式庫）用的平行執行緒數（`OPENBLAS_NUM_THREADS` 等），避免一個 kernel 吃光所有 CPU |
-| `KERNEL_CULL_IDLE_TIMEOUT` | `3600` | 閒置的 kernel 幾秒後自動回收（釋放記憶體）；`0` 代表不回收。正在執行的 kernel 不會被回收 |
-| `JUPYTER_LOCALE` | `zh-tw` | 介面語言：`zh-tw` 或 `en`。這只是預設值，使用者在選單裡改過語言時以自己的設定為準 |
-| `PIP_INDEX_URL` | （pip 預設） | postStart 安裝額外套件時使用的 pip index（pip 下載套件的來源網址）；可以改成內部鏡像站 |
-| `INSTALL_TIMEOUT` | `900` | postStart 安裝額外套件的時間上限（秒）。安裝未完成前 container 還不會 Ready、使用者連不進來，所以這個值會延後可以開始連線的時間；逾時會放棄安裝並在桌面跳出通知，但不會害 Pod 啟動失敗 |
+| `MAX_SESSIONS` | `3` | 可以同時存在的桌面數上限（所有帳號合計，含斷線中的桌面，見註 1） |
+| `DISCONNECTED_TIMEOUT` | `28800` | 斷線的桌面保留幾秒（預設 8 小時），逾時後清掉，裡面的 kernel 和未存檔內容都會消失。最短 60 秒（見註 2） |
+| `KERNEL_MEMORY_LIMIT` | `2Gi` | 每個 kernel 的記憶體硬上限（`RLIMIT_DATA`）；接受 `Mi`、`Gi` 單位，最小 `1Gi`（見註 3） |
+| `KERNEL_THREADS` | `2` | 每個 kernel 的數值運算（BLAS／OpenMP，numpy、pandas 底層做矩陣運算的函式庫）執行緒數，避免一個 kernel 吃光所有 CPU |
+| `KERNEL_CULL_IDLE_TIMEOUT` | `3600` | 閒置的 kernel 幾秒後自動回收（釋放記憶體）；`0` 代表不回收，正在執行的也不回收 |
+| `JUPYTER_LOCALE` | `zh-tw` | 介面語言：`zh-tw` 或 `en`（只是預設值，使用者在選單裡改過語言時以自己的設定為準） |
+| `PIP_INDEX_URL` | （pip 預設） | postStart 安裝額外套件時的 pip 來源網址；可改成內部鏡像站 |
+| `INSTALL_TIMEOUT` | `900` | postStart 安裝額外套件的時間上限（秒），見註 4 |
+
+- **註 1（`MAX_SESSIONS`）**：斷線但還沒被清掉的桌面也占一個名額，直到 `DISCONNECTED_TIMEOUT` 逾時才釋放。
+- **註 2（`DISCONNECTED_TIMEOUT`）**：清桌面的是 xorgxrdp，它會把 1～59 的值當成 60，所以設小於 60 時會被改成 60 並在 log 印出警告；`0` 或非數字等不合法的值則改用預設 `28800`。
+- **註 3（`KERNEL_MEMORY_LIMIT`）**：上限是每個 process 各自計算；超過時通常只會在那一格跳 `MemoryError`、kernel 多半能繼續用，但不保證任何情況下都如此，請定期存檔。小於 `1Gi` 會被改成 `1Gi`（OpenBLAS 等套件在更小的上限下會載入失敗）並印出警告。
+- **註 4（`INSTALL_TIMEOUT`）**：安裝未完成前 container 還不會 Ready、要等 Pod Ready 後才連得進來，所以這個值會延後可以開始連線的時間；逾時會放棄安裝並在桌面跳出通知，但不會害 Pod 啟動失敗。
 
 額外套件（管理者透過 ConfigMap（Kubernetes 存放設定檔的物件）提供的 `requirements.txt`，或使用者自己 `%pip install --user`）的機制見[使用手冊](docs/user-guide.md)和 `manifests/example/requirements`。
 

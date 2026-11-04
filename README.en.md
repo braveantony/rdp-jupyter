@@ -65,7 +65,7 @@ The file browser on the left shows your home directory in the Pod (`/home/<accou
 
 ### 3. Reach in-cluster services
 
-The kernel runs in the Pod, so a notebook can reach in-cluster services directly by `<service>.<namespace>`. For example, query a PostgreSQL in namespace `default` with pandas:
+The kernel runs in the Pod, so a notebook can reach in-cluster services directly by `<service>.<namespace>`. For example, query a PostgreSQL in namespace `default` with pandas (this example first needs `sqlalchemy` and `psycopg2-binary`, and you must replace the connection details with real values; see the [data access guide](docs/data-access.md) (Traditional Chinese) for how to install and where to keep the password):
 
 ```python
 import pandas as pd
@@ -82,9 +82,9 @@ Reading and writing MinIO/S3, bringing notebooks in with Git, and which packages
 
 ### 4. Reconnecting after a disconnect
 
-You **reattach to the same desktop after a disconnect**: if the network drops or you close the Remote Desktop window by accident, log in again with the same account and you are back on the original desktop, with running kernels and results intact. A disconnected desktop is kept for 8 hours by default (`DISCONNECTED_TIMEOUT`) before it is cleaned up.
+You **reattach to the same desktop after a disconnect** (as long as that desktop has not timed out and the Pod has not been recreated): if the network drops or you close the Remote Desktop window by accident, log in again with the same account and you are back on the original desktop, with running kernels and results intact. A disconnected desktop is kept for 8 hours by default (`DISCONNECTED_TIMEOUT`) before it is cleaned up; once the Pod is recreated, all desktops are gone and a login starts a fresh one.
 
-The trade-off is that one account cannot have two desktops at once: a second login reattaches to the first desktop and ends the first connection.
+The trade-off is that one account cannot have two desktops at once: while the desktop still exists, a second login reattaches to it and ends the first connection.
 
 To end a desktop on purpose, close the JupyterLab Desktop window (the close button at the top right) and you are logged out.
 
@@ -112,14 +112,19 @@ First clone this repo as described in the [install guide](docs/install.md#kustom
 | `USERS_FILE` | `/etc/rdp-jupyter/users` | Account file, one `user:password` per line; on Kubernetes it is always mounted from Secret `rdp-jupyter-users-*` |
 | `RDP_USER` | `bigred` | Login account when there is no account file (UID 1000); on Kubernetes the file always exists, so it is not used |
 | `RDP_PASSWORD` | — | Its password, required in that case; not used on Kubernetes |
-| `MAX_SESSIONS` | `3` | Maximum concurrent desktops, all accounts together. **A disconnected desktop counts** until it is cleaned up, so it keeps holding a slot until `DISCONNECTED_TIMEOUT` expires |
-| `DISCONNECTED_TIMEOUT` | `28800` | How long a disconnected desktop is kept (8 hours by default) before cleanup, which discards its running kernels and unsaved content. **Minimum 60 seconds**: xorgxrdp cleans up disconnected desktops and treats any value from 1 to 59 as 60, so a smaller value is raised to 60 with a warning in the log. `0` or a non-numeric value is rejected and falls back to the default `28800` |
-| `KERNEL_MEMORY_LIMIT` | `2Gi` | Per-kernel memory hard limit (`RLIMIT_DATA`); an oversized allocation raises `MemoryError` in that cell instead of killing the kernel. Accepts `Mi` and `Gi`; a value below `1Gi` is raised to `1Gi` (OpenBLAS and friends fail to load under a smaller cap) with a warning |
-| `KERNEL_THREADS` | `2` | BLAS/OpenMP thread count (`OPENBLAS_NUM_THREADS` and friends), so one kernel does not take every CPU |
-| `KERNEL_CULL_IDLE_TIMEOUT` | `3600` | Seconds before an idle kernel is culled to free memory; `0` disables culling. A busy kernel is never culled |
-| `JUPYTER_LOCALE` | `zh-tw` | UI language: `zh-tw` or `en`. This is only the default; a language a user picks in the menu wins |
-| `PIP_INDEX_URL` | (pip default) | pip index used by the postStart extra-package install; point it at an internal mirror if needed |
-| `INSTALL_TIMEOUT` | `900` | Time limit in seconds for the postStart extra-package install. The container is not Ready until the install finishes, so this value delays when users can connect; on timeout the install is abandoned and a notice pops up on the desktop, but it does not fail Pod startup |
+| `MAX_SESSIONS` | `3` | Maximum concurrent desktops, all accounts together, disconnected ones included (note 1) |
+| `DISCONNECTED_TIMEOUT` | `28800` | How long a disconnected desktop is kept (8 hours by default) before cleanup, which discards its kernels and unsaved content. Minimum 60 seconds (note 2) |
+| `KERNEL_MEMORY_LIMIT` | `2Gi` | Per-kernel memory hard limit (`RLIMIT_DATA`); accepts `Mi` and `Gi`, minimum `1Gi` (note 3) |
+| `KERNEL_THREADS` | `2` | Per-kernel numeric-compute thread count (BLAS/OpenMP, the libraries numpy and pandas use under the hood), so one kernel does not take every CPU |
+| `KERNEL_CULL_IDLE_TIMEOUT` | `3600` | Seconds before an idle kernel is culled to free memory; `0` disables culling, and a busy kernel is never culled |
+| `JUPYTER_LOCALE` | `zh-tw` | UI language: `zh-tw` or `en` (only the default; a language a user picks in the menu wins) |
+| `PIP_INDEX_URL` | (pip default) | pip index URL used by the postStart extra-package install; point it at an internal mirror if needed |
+| `INSTALL_TIMEOUT` | `900` | Time limit in seconds for the postStart extra-package install (note 4) |
+
+- **Note 1 (`MAX_SESSIONS`)**: a disconnected desktop that has not been cleaned up still holds a slot until `DISCONNECTED_TIMEOUT` expires.
+- **Note 2 (`DISCONNECTED_TIMEOUT`)**: xorgxrdp does the cleanup and treats any value from 1 to 59 as 60, so a smaller value is raised to 60 with a warning in the log; `0` or a non-numeric value is rejected and falls back to the default `28800`.
+- **Note 3 (`KERNEL_MEMORY_LIMIT`)**: the limit is applied per process; an oversized allocation usually raises `MemoryError` in that cell and the kernel keeps going, but this is not guaranteed in every case, so save often. A value below `1Gi` is raised to `1Gi` (OpenBLAS and friends fail to load under a smaller cap) with a warning.
+- **Note 4 (`INSTALL_TIMEOUT`)**: the container is not Ready until the install finishes, so connections over the normal Service path wait until the Pod is Ready; on timeout the install is abandoned and a notice pops up on the desktop, but it does not fail Pod startup.
 
 Extra packages — whether admin-provided through a `requirements.txt` ConfigMap or installed by a user with `%pip install --user` — are covered in the [user guide](docs/user-guide.md) (Traditional Chinese) and `manifests/example/requirements`.
 

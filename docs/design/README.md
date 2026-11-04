@@ -63,7 +63,7 @@
 ### 安全
 
 #### D5 token 防護：建置時改 `app.asar`，token 改用環境變數傳
-JupyterLab Desktop 原本把 server token 放命令列，同 Pod 的其他帳號能從 `/proc/*/cmdline` 讀到。建置時用 patch 拿掉命令列參數、改用 `JUPYTER_TOKEN` 環境變數傳。這是唯一能完全消除外洩的做法。patch 失效會在建置階段就被擋下。詳見[架構文件](../architecture.md#token-patchd5)。
+JupyterLab Desktop 原本把 server token 放命令列，同 Pod 的其他帳號能從 `/proc/*/cmdline` 讀到。建置時用 patch 拿掉命令列參數、改用 `JUPYTER_TOKEN` 環境變數傳。這樣其他帳號就無法從 `/proc/*/cmdline` 讀到 token；保護範圍與前提（以 UID 為界的隔離）見[架構文件的威脅模型](../architecture.md#威脅模型)。patch 失效會在建置階段就被擋下。詳見[架構文件](../architecture.md#token-patchd5)。
 
 #### D9 資料只透過叢集服務進出，不開 RDP 檔案傳輸
 RDP 傳檔需要 FUSE（`/dev/fuse` + `SYS_ADMIN`），會打破 UID 隔離、違反 Pod Security baseline。所以關掉 drive redirection 和 FUSE，資料改走資料庫、物件儲存或 Git。範例見[資料存取指南](../data-access.md)。
@@ -74,7 +74,7 @@ RDP 傳檔需要 FUSE（`/dev/fuse` + `SYS_ADMIN`），會打破 UID 隔離、�
 sesman 用 `Policy=Default`：同一帳號斷線後重新連線會接回原本的桌面，斷線的桌面預設 8 小時（`DISCONNECTED_TIMEOUT`）後清掉。資料分析最怕運算結果不見，所以選擇可接回；代價是同一帳號不能同時開兩個桌面。`MAX_SESSIONS` 的計算包含斷線中的桌面。
 
 #### D7 每個 kernel 有記憶體硬上限
-在 venv 的 `activate` 設 `RLIMIT_DATA`（`KERNEL_MEMORY_LIMIT`，預設 2Gi），由 server 和 kernel 繼承、使用者不能調高。避免一個人觸發 OOM（記憶體用盡時系統強制終止程式）連帶殺掉整個 Pod。超過上限的配置會跳 `MemoryError`，kernel 本身不死。
+在 venv 的 `activate` 設 `RLIMIT_DATA`（`KERNEL_MEMORY_LIMIT`，預設 2Gi），由 server 和 kernel 繼承、使用者不能調高。避免一個人觸發 OOM（記憶體用盡時系統強制終止程式）連帶殺掉整個 Pod。超過上限的配置通常會跳 `MemoryError`、kernel 多半能存活，但不保證每種情況都如此。
 
 ## 威脅模型與風險
 

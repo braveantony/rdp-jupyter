@@ -9,13 +9,30 @@ notebook 的 kernel 在叢集的 Pod 裡執行，所以可以用 `<service>.<nam
 - **自己裝**：在 notebook 執行 `%pip install --user <套件>`，裝完到 **Kernel → Restart Kernel** 再 import。stateless 模式下 Pod 重建要重裝。
 - **請管理者裝**：加進 `requirements.txt` 的 ConfigMap，所有人共用（見[安裝手冊](install.md#管理者提供額外-python-套件)）。
 
-連線用的帳號密碼、endpoint、bucket 名稱等請向管理者索取；下面的範例值要換成實際的。不要把密碼寫死在 notebook 裡，否則很容易跟著 notebook 一起 push 出去。這個桌面裡設不了環境變數、也掛不了叢集的 Secret，建議的做法是把密碼放在家目錄下的一個小檔案（例如 `~/secrets.json`），把它的權限設成 `0700`（`chmod 700 ~/secrets.json`，別的帳號讀不到），在 notebook 裡讀進來，並把這個檔案排除在 Git 之外（寫進 `.gitignore`）：
+連線用的帳號密碼、endpoint、bucket 名稱等請向管理者索取；下面的範例值要換成實際的。不要把密碼寫死在 notebook 裡，否則很容易跟著 notebook 一起 push 出去。這個桌面不會直接繼承 container 原本的環境變數（sesman 用乾淨的環境啟動桌面），要掛叢集的 Secret 也得請管理者改部署，所以對一般使用者來說，最簡單的做法是把密碼放在家目錄下的一個小檔案，在 notebook 裡讀進來，並把這個檔案排除在 Git 之外。
+
+建立這個檔案：在啟動頁（Launcher）的「其它」區開一個 Terminal，建一個**不含真實密碼**的 JSON 範本，再把權限收緊，讓別的帳號讀不到：
+
+```bash
+cat > ~/secrets.json <<'JSON'
+{
+  "pg_user": "analyst",
+  "pg_password": "CHANGE-ME",
+  "s3_key": "CHANGE-ME",
+  "s3_secret": "CHANGE-ME"
+}
+JSON
+chmod 600 ~/secrets.json
+echo "secrets.json" >> ~/.gitignore
+```
+
+接著在檔案瀏覽器裡打開 `secrets.json`，把 `CHANGE-ME` 換成實際的密碼、存檔。之後在 notebook 裡讀進來，下面的範例都用 `creds[...]` 取值：
 
 ```python
 import json, pathlib
 
 creds = json.loads(pathlib.Path.home().joinpath("secrets.json").read_text())
-# creds["pg_password"] 等，下面的範例用得到
+# 例如 creds["pg_password"]、creds["s3_secret"]
 ```
 
 ## 為什麼不能從本機拖檔案進來（D9）
@@ -47,8 +64,11 @@ psycopg2-binary
 import pandas as pd
 from sqlalchemy import create_engine
 
+# creds 來自本文件開頭讀進來的 ~/secrets.json
 # 格式：postgresql+psycopg2://<帳號>:<密碼>@<service>.<namespace>:5432/<資料庫>
-engine = create_engine("postgresql+psycopg2://analyst:secret@postgres.default:5432/sales")
+engine = create_engine(
+    f"postgresql+psycopg2://{creds['pg_user']}:{creds['pg_password']}@postgres.default:5432/sales"
+)
 
 df = pd.read_sql("SELECT region, amount FROM orders WHERE year = 2026", engine)
 df.groupby("region")["amount"].sum()
@@ -83,8 +103,8 @@ import pandas as pd
 
 endpoint = "http://minio.default:9000"          # <service>.<namespace>:<埠>
 storage_options = {
-    "key": "ACCESS_KEY",
-    "secret": "SECRET_KEY",
+    "key": creds["s3_key"],                       # creds 來自本文件開頭的 ~/secrets.json
+    "secret": creds["s3_secret"],
     "client_kwargs": {"endpoint_url": endpoint},  # 指向叢集內的 MinIO，不是 AWS
 }
 

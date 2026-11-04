@@ -11,7 +11,7 @@
 | [Kustomize：stateful](#kustomize多個帳號與保留-home) | 多人使用，而且要保留 notebook 和套件 | 自己的帳號清單 | PVC（向叢集申請的永久儲存空間） |
 | [單機（podman）](#單機podman) | 沒有 Kubernetes，只想在一台 Linux 主機上用 | 單一帳號，或掛載帳號清單 | container 裡（刪掉 container 就消失） |
 
-emptyDir 是 Pod 刪掉就跟著消失的暫存空間，所以 Pod 重建後（例如重新部署）notebook 和額外套件都會回到映像檔的原始狀態。
+emptyDir 是 Pod 刪掉就跟著消失的暫存空間，所以 Pod 重建後（例如重新部署），存在這塊空間裡的 notebook 和額外套件都會消失。
 
 前三種都部署到 namespace `rdp-jupyter`（namespace 是 Kubernetes 用來分組資源的名稱），用遠端桌面連到 `<節點 IP>:30391`。登入步驟和操作見 [README 的「怎麼用」](../README.md#怎麼用)。
 
@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/braveantony/rdp-jupyter/main/instal
 
 | Overlay | `/home`、`/opt/jupyter/extra` | Pod 重建時 |
 |---|---|---|
-| `manifests/stateless` | emptyDir | notebook、自己裝的套件、管理者的額外套件都會消失 |
+| `manifests/stateless` | emptyDir | notebook、自己裝的套件、管理者先前裝好的額外套件都會隨 Pod 消失（新 Pod 啟動時 postStart 會依掛載的 `requirements.txt` 重新安裝一次） |
 | `manifests/stateful` | PVC `rdp-jupyter-home`（10 GiB）和 `rdp-jupyter-extra`（5 GiB），都是 ReadWriteOnce（同時只能掛在一個節點上） | `/home` 和額外套件都會保留；`requirements.txt`、`PIP_INDEX_URL` 和映像檔版本三者都沒變就不重裝 |
 
 兩個資料夾各有自己的 `users.txt`，**要編輯的是你接下來要套用的那個資料夾裡的檔案**。
@@ -51,7 +51,7 @@ curl -fsSL https://raw.githubusercontent.com/braveantony/rdp-jupyter/main/instal
 ```bash
 git clone https://github.com/braveantony/rdp-jupyter.git
 cd rdp-jupyter
-vi manifests/stateful/users.txt   # 用你熟悉的文字編輯器修改帳號清單，這裡以 vi 為例
+vi manifests/stateful/users.txt   # 用你熟悉的文字編輯器修改帳號清單，這裡以 vi 為例；vi 存檔離開是按 Esc 後輸入 :wq
 kubectl apply -k manifests/stateful
 kubectl -n rdp-jupyter rollout status deploy/rdp-jupyter   # 等待 Pod 啟動完成（第一次要下載映像檔）
 ```
@@ -82,16 +82,16 @@ StorageClass 是決定 PVC 用哪種儲存的叢集設定。這兩個 PVC 都沒
 
 ### 管理者提供額外 Python 套件
 
-映像檔只預裝 pandas、matplotlib。要讓每個桌面都能用其他套件（例如 `sqlalchemy`、`s3fs`），管理者可以掛一份 `requirements.txt`，由 postStart 在 Pod 啟動時安裝。範例在 `manifests/example/requirements`：
+映像檔只預裝 pandas、matplotlib。要讓每個桌面都能用其他套件（例如 `sqlalchemy`、`s3fs`），管理者可以掛一份 `requirements.txt`，由 postStart 在 Pod 啟動時安裝。範例在 `manifests/example/requirements`（以下假設從 repo 根目錄執行；如果你還在上一步 clone 好的 `rdp-jupyter` 目錄裡，就略過 `cd`）：
 
 ```bash
-cd rdp-jupyter
-vi manifests/example/requirements/requirements.txt   # 一行一個套件
+cd rdp-jupyter   # 已經在 repo 根目錄就不必再執行
+vi manifests/example/requirements/requirements.txt   # 一行一個套件；vi 存檔離開是按 Esc 後輸入 :wq
 kubectl apply -k manifests/example/requirements
 ```
 
 - 這個範例以 `manifests/stateless` 為基礎，所以帳號清單是 `manifests/stateless/users.txt`。
-- `configMapGenerator` 會在 ConfigMap 名稱後面加內容雜湊，所以改了 `requirements.txt` 就會重新安裝；內容沒變則跳過。
+- `configMapGenerator` 會在 ConfigMap 名稱後面加內容雜湊，所以改了 `requirements.txt` 就會觸發 Pod 重建、重新安裝。要跳過安裝得同時滿足：先前的安裝結果還在（stateless 的 emptyDir 一旦 Pod 重建就沒了，所以新 Pod 一定會重裝；stateful 的 PVC 才留得住），而且 `requirements.txt`、`PIP_INDEX_URL` 和映像檔版本三者都沒變。
 - 安裝失敗（例如套件名稱打錯、連不到 PyPI）不會害 Pod 啟動失敗，而是在桌面跳出一個通知，log 也看得到（`kubectl -n rdp-jupyter logs deploy/rdp-jupyter`）。
 - 要可重現的安裝（鎖定版本和 hash），把 `configMapGenerator` 的 `files:` 改成 `- requirements.txt=requirements-hashed.txt`，`install-extra.sh` 會自動加上 `--require-hashes`。**等號左邊的 ConfigMap key 必須維持 `requirements.txt`，只換右邊的來源檔**；如果直接寫 `- requirements-hashed.txt`，key 會變成 `requirements-hashed.txt`，而 `install-extra.sh` 只讀 `requirements.txt` 這個 key，結果會靜默地什麼都不裝。產生 hash 的指令在 `requirements-hashed.txt` 的註解裡。
 - 使用者也可以不靠管理者，自己在 notebook 裡 `%pip install --user <套件>`，裝到自己的 `~/.local`，只影響自己（stateful 模式會保留）。詳見[使用手冊](user-guide.md)。

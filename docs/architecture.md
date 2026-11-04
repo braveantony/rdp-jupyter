@@ -24,7 +24,7 @@ Pod 只有**一個 container `desktop`**。裡面的 process 分成兩批啟動�
 
 xrdp 或 xrdp-sesman 結束時，container 就會停止，由 Kubernetes 重啟。關掉 JupyterLab Desktop 只會讓那一個桌面登出，不影響 container。
 
-另外有一個 **postStart hook**（`install-extra.sh`）和 entrypoint 同時開始：如果掛了 `requirements.txt` 的 ConfigMap，它會把額外套件裝進 `/opt/jupyter/extra`。hook 執行完之前 container 不會進入 Running、Pod 不會 Ready，所以安裝期間使用者連不進來。它一律以 `exit 0` 結束，安裝失敗不會害 container 被殺，而是在桌面跳出通知。
+另外有一個 **postStart hook**（`install-extra.sh`）和 entrypoint 同時開始：如果掛了 `requirements.txt` 的 ConfigMap，它會把額外套件裝進 `/opt/jupyter/extra`。hook 執行完之前 container 不會進入 Running、Pod 不會 Ready，所以透過一般 Service 路徑（NodePort）的連線要等 Pod Ready 後才能使用。它一律以 `exit 0` 結束，安裝失敗不會害 container 被殺，而是在桌面跳出通知。
 
 | 元件 | 職責 |
 |---|---|
@@ -65,7 +65,7 @@ entrypoint 依 `JUPYTER_LOCALE` 產生 `/opt/jupyter/venv/share/jupyter/lab/sett
 
 ## 記憶體與長時間運算
 
-- **每個 kernel 的記憶體上限**：建置時在 venv 的 `bin/activate` 最後加一行 source `server-env.sh`。launch 腳本會載入 `activate`，所以它設定的 `ulimit -S -H -d`（`RLIMIT_DATA`）會由 Jupyter server 和之後的 kernel、Terminal 繼承，使用者不能調高。大小由 `KERNEL_MEMORY_LIMIT` 決定（預設 `2Gi`）。超過上限的配置會在那一格跳 `MemoryError`，kernel 不會死。
+- **每個 kernel 的記憶體上限**：建置時在 venv 的 `bin/activate` 最後加一行 source `server-env.sh`。launch 腳本會載入 `activate`，所以它設定的 `ulimit -S -H -d`（`RLIMIT_DATA`）會由 Jupyter server 和之後的 kernel、Terminal 繼承，使用者不能調高。大小由 `KERNEL_MEMORY_LIMIT` 決定（預設 `2Gi`）。超過上限的配置通常會在那一格跳 `MemoryError`、kernel 多半能存活，但不保證所有情況下 kernel 都不中斷，仍應定期存檔。
 - **執行緒數**：同一個檔案設定 `OPENBLAS_NUM_THREADS`、`OMP_NUM_THREADS`、`MKL_NUM_THREADS`，由 `KERNEL_THREADS` 決定（預設 `2`）。
 - **用量顯示**：`jupyter-resource-usage` 在 JupyterLab 狀態列顯示目前的記憶體用量和上限。
 

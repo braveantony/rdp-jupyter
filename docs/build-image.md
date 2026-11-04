@@ -73,7 +73,7 @@ podman image ls ghcr.io/braveantony/rdp-jupyter
 
 > **重要：映像檔的 apt 依賴是刻意弄壞的，不要在它上面 `apt-get install`。**
 >
-> 為了壓到 1.2 GB 的大小上限，final 階段用 `--force-depends` 移除了 Mesa／LLVM 相關套件（`mesa-libgallium`、`libllvm19`、`libz3-4`、`libegl-mesa0`、`libglx-mesa0` 等，約 196 MB）。這個 Pod 沒有 GPU（`/dev/dri` 不存在），xorgxrdp 用軟體繪圖，Electron 以 `--disable-gpu` 執行，所以這些套件用不到；還引用它們的模組（libgbm 的 dri 後端、Xorg 的 glamor 和 glx）只是 dlopen 它們、找不到就退回軟體。代價是 **apt 會看到壞掉的依賴**。要改動作業系統層的套件，請**改 Dockerfile 重新建置整個映像檔**，絕對不要在跑起來的container裡 `apt-get install`——那會因為壞掉的依賴失敗，或把映像檔弄到無法重現的狀態。Python 套件不受影響，照常用 `requirements.txt`（管理者）或 `%pip install --user`（使用者）。
+> 為了壓到 1.2 GB 的大小上限，final 階段用 `--force-depends` 移除了 Mesa／LLVM 相關套件（`mesa-libgallium`、`libllvm19`、`libz3-4`、`libegl-mesa0`、`libglx-mesa0` 等，約 196 MB）。這個 Pod 沒有 GPU（`/dev/dri` 不存在），xorgxrdp 用軟體繪圖，Electron 以 `--disable-gpu` 執行，所以這些套件用不到；還引用它們的模組（libgbm 的 dri 後端、Xorg 的 glamor 和 glx）只是 dlopen 它們、找不到就退回軟體。代價是 **apt 會看到壞掉的依賴**。要改動作業系統層的套件，請**改 Dockerfile 重新建置整個映像檔**，絕對不要在跑起來的 container 裡 `apt-get install`——那會因為壞掉的依賴失敗，或把映像檔弄到無法重現的狀態。Python 套件不受影響，照常用 `requirements.txt`（管理者）或 `%pip install --user`（使用者）。
 
 ## Step 3：測試
 
@@ -208,8 +208,8 @@ JupyterLab Desktop 原本把 Jupyter server 的 token 放在命令列（`--Serve
 | 現象 | 原因與處理 |
 |---|---|
 | 登入後畫面一片空白、JupyterLab 沒出現 | `/dev/shm` 太小。Chromium／kernel 會把中文字型或大陣列放進共用記憶體，預設 64 MiB 不夠。K8s 部署已掛 1 GiB 的記憶體 `emptyDir`；用 podman 直接執行時要加 `--shm-size=1g` |
-| 在container裡 `apt-get install` 失敗 | Mesa／LLVM 被 `--force-depends` 移除，apt 看到壞掉的依賴。要改系統套件請改 Dockerfile 重建，不要在container裡裝 |
+| 在 container 裡 `apt-get install` 失敗 | Mesa／LLVM 被 `--force-depends` 移除，apt 看到壞掉的依賴。要改系統套件請改 Dockerfile 重建，不要在 container 裡裝 |
 | Electron 在 tk8s 上起不來、`No usable sandbox!` | RuntimeDefault seccomp 擋掉 Chromium 的 namespace sandbox。`startwm.sh` 以 `--no-sandbox` 啟動；理由見[架構文件](architecture.md#威脅模型) |
 | `JUPYTER_LOCALE=zh-tw` 但介面是英文 | 使用者可能在選單裡改過語言，以使用者的設定為準；或 `overrides.json` 沒產生，確認 entrypoint 有寫出 `/opt/jupyter/venv/share/jupyter/lab/settings/overrides.json` |
-| container的環境變數在桌面裡讀不到 | sesman 用乾淨的環境啟動桌面。entrypoint 用 `session-env.sh` 把設定寫到 `/run/rdp-jupyter/session.env`，由 `startwm.sh` 和 `server-env.sh` 讀取 |
+| container 的環境變數在桌面裡讀不到 | sesman 用乾淨的環境啟動桌面。entrypoint 用 `session-env.sh` 把設定寫到 `/run/rdp-jupyter/session.env`，由 `startwm.sh` 和 `server-env.sh` 讀取 |
 | 建置時 token patch 失敗 | 上游改了 `settings.js` 或 `server.js`。看新版程式更新 patch 的比對字串，再重建 |
