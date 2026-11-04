@@ -9,10 +9,13 @@
 # go to test/e2e/out/. Every scenario must PASS except `oom`, which is
 # record-only (its result is written by hand into docs/ops/).
 #
-# Namespaces created: rdp-jupyter (redeployed per scenario) and
-# rdp-jupyter-e2e-data (the PostgreSQL fixture). Both are deleted on exit unless
-# E2E_KEEP=1.
-# shellcheck disable=SC1091,SC2015,SC2016,SC2086  # pass() never fails; single-quoted scripts run in the pod; word-split is intended for env lists
+# All kubectl calls are pinned to a context (E2E_CONTEXT, default
+# kubernetes-admin@tk8s). Namespaces created: rdp-jupyter (redeployed per
+# scenario) and rdp-jupyter-e2e-data (the PostgreSQL fixture). Each is labelled
+# rdp-jupyter-e2e-owner=run-sh at creation, and reset_ns/cleanup delete ONLY
+# namespaces carrying that label, so a real deployment under the same name is
+# never wiped. Both are deleted on exit unless E2E_KEEP=1.
+# shellcheck disable=SC1091,SC2015,SC2016,SC2086,SC2034  # pass() never fails; single-quoted scripts run in the pod; word-split is intended for env lists; vars used only inside eval'd conditions
 set -u
 cd "$(dirname "$0")/../.." || exit 1
 . test/lib.sh
@@ -28,13 +31,43 @@ OUT=$PWD/test/e2e/out
 WORK=$(mktemp -d)
 NODES="tk8s-control-plane-1 tk8s-worker-1 tk8s-worker-2"
 EXAMPLE_REQ=$PWD/manifests/example/requirements/requirements.txt
+# Pin the kubectl context so nothing can run against the wrong cluster.
+CONTEXT=${E2E_CONTEXT:-kubernetes-admin@tk8s}
+# Label every namespace this harness creates, so cleanup only ever deletes its own.
+OWNER_LABEL=rdp-jupyter-e2e-owner
+OWNER_VALUE=run-sh
 pf_pid=""
 mkdir -p "$OUT"
 
-k()  { kubectl -n "$NS" "$@"; }
-kd() { kubectl -n "$DATA_NS" "$@"; }
+kc() { kubectl --context "$CONTEXT" "$@"; }
+k()  { kc -n "$NS" "$@"; }
+kd() { kc -n "$DATA_NS" "$@"; }
 # exec a command in the desktop pod as root
 kx() { k exec deploy/rdp-jupyter -- bash -c "$1"; }
+
+# own_ns <ns>: mark a namespace as created by this harness (idempotent)
+own_ns() { kc label ns "$1" "$OWNER_LABEL=$OWNER_VALUE" --overwrite >/dev/null 2>&1; }
+# ns_ours <ns>: succeed if the namespace is absent (safe to create) or carries
+# our ownership label; fail if it exists without the label (someone else's).
+ns_ours() {
+  kc get ns "$1" >/dev/null 2>&1 || return 0
+  [ "$(kc get ns "$1" -o jsonpath='{.metadata.labels.'"$OWNER_LABEL"'}' 2>/dev/null)" = "$OWNER_VALUE" ]
+}
+# del_owned_ns <ns> [wait]: delete a namespace only if it is absent or ours.
+del_owned_ns() {
+  if ns_ours "$1"; then
+    kc delete ns "$1" --ignore-not-found --wait="${2:-true}" >/dev/null 2>&1
+  else
+    bad "refusing to delete namespace $1: no $OWNER_LABEL=$OWNER_VALUE label (not created by this harness)"
+    return 1
+  fi
+}
+# png_nontrivial <file>: a real PNG screenshot, not a blank/failed capture
+png_nontrivial() {
+  [ -s "$1" ] || return 1
+  [ "$(head -c8 "$1" | od -An -tx1 | tr -d ' \n')" = 89504e470d0a1a0a ] || return 1
+  [ "$(stat -c %s "$1")" -ge 20000 ]
+}
 # wait_for <seconds> <bash condition>
 wait_for() {
   local end=$((SECONDS + $1))
@@ -101,7 +134,7 @@ server_count() { kx "pgrep -f '^python[0-9.]* -m jupyterlab( |\$)' | wc -l"; }
 # --- deploy helpers ---------------------------------------------------------
 reset_ns() {
   clients_rm_all; pf_stop
-  kubectl delete ns "$NS" --ignore-not-found --wait=true >/dev/null 2>&1
+  del_owned_ns "$NS" true || return 1
 }
 wait_ready() {
   k rollout status deploy/rdp-jupyter --timeout=300s >/dev/null 2>&1 &&
@@ -141,13 +174,13 @@ deploy_app() {
       echo "  - requirements.txt"
     fi
   } > "$d/kustomization.yaml"
-  kubectl apply -k "$d" >"$WORK/apply-$name.log" 2>&1
+  kc apply -k "$d" >"$WORK/apply-$name.log" 2>&1 && own_ns "$NS"
 }
 
 # ===========================================================================
 scn_stateless() {
   say "stateless: deploy (3 accounts), login x3, pandas.read_sql against pg"
-  reset_ns
+  reset_ns || { bad "reset_ns refused (namespace not owned); aborting scenario"; return; }
   deploy_app stateless emptydir $'alice:alice\nbob:bob\nbigred:bigred' || { bad "stateless: apply"; return; }
   wait_ready && pass "stateless: pod Ready" || { bad "stateless: pod not Ready"; k describe pod -l app=rdp-jupyter >"$OUT/stateless-describe.log" 2>&1; return; }
   pf_start || { bad "stateless: port-forward"; return; }
@@ -166,6 +199,12 @@ scn_stateless() {
   shot stateless-alice  :95 stateless-alice
   shot stateless-bob    :96 stateless-bob
   shot stateless-bigred :97 stateless-bigred
+  local a=$OUT/stateless-alice.png b=$OUT/stateless-bob.png g=$OUT/stateless-bigred.png
+  if png_nontrivial "$a" && png_nontrivial "$b" && png_nontrivial "$g"; then
+    pass "stateless: 3 non-trivial desktop screenshots ($(stat -c %s "$a"),$(stat -c %s "$b"),$(stat -c %s "$g") bytes)"
+  else
+    bad "stateless: a desktop screenshot is missing/blank (alice=$(stat -c %s "$a" 2>/dev/null) bob=$(stat -c %s "$b" 2>/dev/null) bigred=$(stat -c %s "$g" 2>/dev/null))"
+  fi
 
   say "stateless: pandas.read_sql over the cluster network"
   pip_target pg8000 /tmp/pglib pg8000 >"$OUT/stateless-pip.log" 2>&1 \
@@ -202,7 +241,7 @@ PY
 
 scn_requirements() {
   say "requirements: apply example/requirements, import the packages in a notebook"
-  reset_ns
+  reset_ns || { bad "reset_ns refused (namespace not owned); aborting scenario"; return; }
   deploy_app requirements emptydir $'bigred:bigred' "$EXAMPLE_REQ" || { bad "requirements: apply"; return; }
   wait_ready && pass "requirements: pod Ready" || { bad "requirements: pod not Ready"; return; }
   # postStart installs into /opt/jupyter/extra; wait for the stamp
@@ -213,15 +252,19 @@ scn_requirements() {
   grep -q 'install-extra.*installed (' "$OUT/requirements-logs.log" \
     && pass "requirements: postStart log shows 'installed'" || bad "requirements: no 'installed' line in logs"
   kx 'ls /opt/jupyter/extra/current' >"$OUT/requirements-extra-ls.log" 2>&1
-  grep -q '^pandas$' "$OUT/requirements-extra-ls.log" \
-    && pass "requirements: pandas delivered under extra/current" || bad "requirements: pandas not under extra/current"
+  grep -q '^humanize$' "$OUT/requirements-extra-ls.log" \
+    && pass "requirements: humanize delivered under extra/current" || bad "requirements: humanize not under extra/current"
 
+  # humanize is NOT in the base image, so a successful import proves the extra
+  # package was installed and is on sys.path; EXTRA_FILE proves the imported
+  # module actually resolves under /opt/jupyter/extra (the .pth), not a base copy.
   cat > "$WORK/imp.py" <<'PY'
 import nbformat
 from nbformat.v4 import new_notebook, new_code_cell
 from nbclient import NotebookClient
-src = ("import pandas, matplotlib\n"
-       "print('IMPORT_OK ' + pandas.__version__ + ' ' + matplotlib.__version__)\n")
+src = ("import humanize\n"
+       "print('IMPORT_OK ' + humanize.__version__)\n"
+       "print('EXTRA_FILE ' + humanize.__file__)\n")
 nb = new_notebook(cells=[new_code_cell(src)])
 NotebookClient(nb, timeout=120, kernel_name='python3', allow_errors=True).execute()
 for cell in nb.cells:
@@ -229,17 +272,21 @@ for cell in nb.cells:
         if o.output_type == 'stream':
             print(o['text'], end='')
         elif o.output_type == 'error':
-            print('ERR=' + o['ename'])
+            print('ERR=' + o['ename'] + ': ' + ''.join(o.get('evalue', '')))
 PY
   out=$(run_user_py "$WORK/imp.py" imp)
   printf '%s\n' "$out" | tee "$OUT/requirements-import.log" | sed 's/^/  | /'
   grep -q '^IMPORT_OK ' <<<"$out" \
-    && pass "requirements: notebook imported the example packages" || bad "requirements: import failed"
+    && pass "requirements: notebook imported the extra package humanize" || bad "requirements: humanize import failed"
+  case "$(sed -n 's/^EXTRA_FILE //p' <<<"$out" | tail -1)" in
+    /opt/jupyter/extra/*) pass "requirements: imported humanize resolves under /opt/jupyter/extra (the extra copy, not base)" ;;
+    *) bad "requirements: humanize.__file__ is not under /opt/jupyter/extra: '$(sed -n 's/^EXTRA_FILE //p' <<<"$out" | tail -1)'" ;;
+  esac
 }
 
 scn_stateful() {
   say "stateful: write a file, delete the pod, file persists; postStart skips on unchanged requirements"
-  reset_ns
+  reset_ns || { bad "reset_ns refused (namespace not owned); aborting scenario"; return; }
   deploy_app stateful pvc $'bigred:bigred' "$EXAMPLE_REQ" || { bad "stateful: apply"; return; }
   wait_ready && pass "stateful: pod Ready" || { bad "stateful: pod not Ready"; return; }
   wait_for 300 'kx "test -f /opt/jupyter/extra/.stamp" 2>/dev/null' \
@@ -250,9 +297,14 @@ scn_stateful() {
   kx 'cat /home/bigred/work/analysis.ipynb' >"$OUT/stateful-before.ipynb" 2>&1
 
   say "stateful: delete the pod and wait for the Recreate rollout"
-  local before; before=$(restart_count)
+  local old_uid new_uid
+  old_uid=$(k get pod -l app=rdp-jupyter -o jsonpath='{.items[0].metadata.uid}' 2>/dev/null)
   k delete pod -l app=rdp-jupyter --wait=true >/dev/null 2>&1
-  wait_ready && pass "stateful: pod recreated and Ready" || { bad "stateful: pod not Ready after delete"; return; }
+  # Wait until a Pod with a *different* UID exists, so wait_ready cannot match the
+  # old terminating Pod, before confirming readiness.
+  wait_for 180 'new_uid=$(k get pod -l app=rdp-jupyter -o jsonpath="{.items[0].metadata.uid}" 2>/dev/null); [ -n "$new_uid" ] && [ "$new_uid" != "'"$old_uid"'" ]' \
+    || { bad "stateful: no genuinely-new Pod within 180s (old uid $old_uid)"; return; }
+  wait_ready && pass "stateful: pod recreated (new uid) and Ready" || { bad "stateful: pod not Ready after delete"; return; }
 
   kx 'test -f /home/bigred/work/analysis.ipynb && cat /home/bigred/work/analysis.ipynb' >"$OUT/stateful-after.ipynb" 2>&1 \
     && pass "stateful: notebook file survived the pod recreation (PVC)" || bad "stateful: notebook file gone after recreation"
@@ -262,15 +314,14 @@ scn_stateful() {
   wait_for 120 'grep -q "install-extra.*up to date.*skipping" '"$OUT/stateful-logs-after.log"' || { k logs deploy/rdp-jupyter > '"$OUT/stateful-logs-after.log"' 2>&1; false; }' \
     && pass "stateful: postStart skipped install (up to date) on unchanged requirements" \
     || bad "stateful: no 'up to date ... skipping' in postStart log after recreation"
-  : "$before"
 }
 
 scn_pip_unreachable() {
   say "pip-unreachable: NetworkPolicy blocks egress; pod Ready; xmessage on login; pip error in logs"
-  reset_ns
+  reset_ns || { bad "reset_ns refused (namespace not owned); aborting scenario"; return; }
   # Create the namespace and deny-all-egress BEFORE the deployment, so postStart's
   # pip install runs with egress already blocked.
-  kubectl apply -f manifests/base/namespace.yaml >/dev/null 2>&1
+  kc apply -f manifests/base/namespace.yaml >/dev/null 2>&1 && own_ns "$NS"
   cat > "$WORK/netpol.yaml" <<EOF
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -285,7 +336,7 @@ spec:
   - Egress
   egress: []
 EOF
-  kubectl apply -f "$WORK/netpol.yaml" >/dev/null 2>&1 && pass "pip-unreachable: deny-egress NetworkPolicy applied" || { bad "pip-unreachable: could not apply NetworkPolicy"; return; }
+  kc apply -f "$WORK/netpol.yaml" >/dev/null 2>&1 && pass "pip-unreachable: deny-egress NetworkPolicy applied" || { bad "pip-unreachable: could not apply NetworkPolicy"; return; }
   sleep 5   # let Cilium program the policy before the pod starts
   deploy_app pipblock emptydir $'bigred:bigred' "$EXAMPLE_REQ" || { bad "pip-unreachable: apply"; return; }
   wait_ready && pass "pip-unreachable: pod becomes Ready despite blocked egress" || { bad "pip-unreachable: pod not Ready"; return; }
@@ -308,7 +359,7 @@ EOF
 
 scn_kernel_limit() {
   say "kernel-limit: defaults (2Gi), allocate 3GB -> MemoryError, pod does NOT restart"
-  reset_ns
+  reset_ns || { bad "reset_ns refused (namespace not owned); aborting scenario"; return; }
   deploy_app kernlimit emptydir $'bigred:bigred' || { bad "kernel-limit: apply"; return; }
   wait_ready && pass "kernel-limit: pod Ready" || { bad "kernel-limit: pod not Ready"; return; }
   local before; before=$(restart_count)
@@ -338,27 +389,37 @@ PY
   [ "$(sed -n 's/^CELL2=//p' <<<"$out" | tail -1)" = ALIVE ] \
     && pass "kernel-limit: kernel still alive after MemoryError" || bad "kernel-limit: kernel not alive"
   sleep 5
-  [ "$(restart_count)" = "$before" ] \
-    && pass "kernel-limit: pod did not restart (count still $before)" || bad "kernel-limit: pod restarted ($before -> $(restart_count))"
+  local after; after=$(restart_count)
+  if [ -n "$before" ] && [ -n "$after" ] && [ "$after" = "$before" ]; then
+    pass "kernel-limit: pod did not restart (count still $before)"
+  else
+    bad "kernel-limit: restart count check failed (before='$before' after='$after')"
+  fi
 }
 
 scn_oom() {
   say "oom (RECORD-ONLY): KERNEL_MEMORY_LIMIT=6Gi, limits 4Gi, allocate 5GB"
-  reset_ns
+  reset_ns || { bad "reset_ns refused (namespace not owned); aborting scenario"; return; }
   deploy_app oom emptydir $'bigred:bigred' || { bad "oom: apply"; return; }
   k set env deploy/rdp-jupyter KERNEL_MEMORY_LIMIT=6Gi >/dev/null 2>&1
   k set resources deploy/rdp-jupyter --limits=memory=4Gi --requests=memory=2Gi >/dev/null 2>&1
   wait_ready || { bad "oom: pod not Ready after reconfigure"; return; }
 
-  local oomgroup memmax before
+  local oomgroup memmax before node spok
   oomgroup=$(kx 'cat /sys/fs/cgroup/memory.oom.group 2>/dev/null' | tr -d '[:space:]')
   memmax=$(kx 'cat /sys/fs/cgroup/memory.max 2>/dev/null' | tr -d '[:space:]')
   before=$(restart_count)
+  # Read the live kubelet config of the node the pod runs on, rather than guessing.
+  node=$(k get pod -l app=rdp-jupyter -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null)
+  spok=$(kc get --raw "/api/v1/nodes/$node/proxy/configz" 2>/dev/null \
+    | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["kubeletconfig"].get("singleProcessOOMKill","<unset>"))' 2>/dev/null)
+  [ -n "$spok" ] || spok="<unreadable>"
   {
+    echo "node=$node"
     echo "memory.oom.group=$oomgroup"
     echo "memory.max=$memmax"
     echo "restartCount.before=$before"
-    echo "kubelet.singleProcessOOMKill=<unset> (see docs/ops record)"
+    echo "kubelet.singleProcessOOMKill=$spok"
   } | tee "$OUT/oom-cgroup.log"
 
   # Allocate 5 GB in a detached process under the venv (RLIMIT_DATA=6Gi, so no
@@ -392,7 +453,6 @@ PY
     echo "restartCount.after=$after"
     echo "lastState.reason=$reason"
     echo "RESULT=$result"
-    kx 'kubectl version >/dev/null 2>&1; true'
   } | tee -a "$OUT/oom-cgroup.log"
   k describe pod -l app=rdp-jupyter >"$OUT/oom-describe.log" 2>&1
   k get events --sort-by=.lastTimestamp >"$OUT/oom-events.log" 2>&1
@@ -402,8 +462,8 @@ PY
 cleanup() {
   clients_rm_all; pf_stop
   if [ "${E2E_KEEP:-0}" != 1 ]; then
-    kubectl delete ns "$NS" --ignore-not-found --wait=false >/dev/null 2>&1
-    kubectl delete ns "$DATA_NS" --ignore-not-found --wait=false >/dev/null 2>&1
+    del_owned_ns "$NS" false
+    del_owned_ns "$DATA_NS" false
   fi
   rm -rf "$WORK"
 }
@@ -432,16 +492,17 @@ load_image() {
 # wait_ns_gone <ns>: block while a namespace is still Terminating from a previous
 # run (cleanup deletes with --wait=false), so a fresh apply does not race it.
 wait_ns_gone() {
-  wait_for 120 '! kubectl get ns "'"$1"'" >/dev/null 2>&1'
+  wait_for 120 '! kc get ns "'"$1"'" >/dev/null 2>&1'
 }
 
 deploy_fixture() {
   say "deploy PostgreSQL fixture ($DATA_NS)"
+  ns_ours "$DATA_NS" || { bad "fixture: namespace $DATA_NS exists but is not owned by this harness; refusing to touch it"; finish; }
   wait_ns_gone "$DATA_NS"
-  kubectl apply -f test/e2e/fixtures/postgres.yaml >/dev/null 2>&1 || { bad "fixture apply"; finish; }
-  kubectl -n "$DATA_NS" rollout status deploy/pg --timeout=300s >/dev/null 2>&1 \
-    && kubectl -n "$DATA_NS" wait --for=condition=Available deploy/pg --timeout=120s >/dev/null 2>&1 \
-    && pass "PostgreSQL ready" || { bad "PostgreSQL not ready"; kubectl -n "$DATA_NS" describe pod -l app=pg >"$OUT/pg-describe.log" 2>&1; finish; }
+  kc apply -f test/e2e/fixtures/postgres.yaml >/dev/null 2>&1 && own_ns "$DATA_NS" || { bad "fixture apply"; finish; }
+  kd rollout status deploy/pg --timeout=300s >/dev/null 2>&1 \
+    && kd wait --for=condition=Available deploy/pg --timeout=120s >/dev/null 2>&1 \
+    && pass "PostgreSQL ready" || { bad "PostgreSQL not ready"; kd describe pod -l app=pg >"$OUT/pg-describe.log" 2>&1; finish; }
 }
 
 load_image

@@ -80,7 +80,7 @@
 | F8 | kernel connection file 用 `secure_write` 寫成 0600；ZMQ 訊息有 HMAC 簽章 | `jupyter_client/connect.py`、`jupyter_core/paths.py` |
 | F9 | 支援 `MappingKernelManager.cull_idle_timeout`、`cull_interval`、`cull_busy`、`cull_connected` | `jupyter_server/services/kernels/kernelmanager.py` |
 | F10 | postStart 和 ENTRYPOINT 同時開始；hook 失敗容器就會被殺；hook 可能執行不只一次；hook 執行完之前，容器可能不會進入 Running；失敗時只留下 `FailedPostStartHook` 事件 | Kubernetes 文件 `container-lifecycle-hooks.md` |
-| F11 | tk8s 是 v1.37.1、cgroup v2，沒有設定 `singleProcessOOMKill`，所以容器 OOM 時整個被殺（`memory.oom.group`） | `kubectl get --raw .../configz`；行為要在 e2e 實測確認 |
+| F11 | tk8s 是 v1.37.1、cgroup v2，沒有設定 `singleProcessOOMKill`，所以容器 OOM 時整個被殺（`memory.oom.group`） | `kubectl get --raw .../configz`；**2026-11-04 e2e 實測確認**：`memory.oom.group=1`、`singleProcessOOMKill` 未設、配置 5GB 超過 4Gi limit 時整個 Pod 被 OOMKilled 重啟（restartCount 0→1），見 `docs/ops/2026-11-04-tk8s-e2e.md` |
 | F12 | xrdp 0.10.1 的 `Policy=Default` 等於 `UB`：同一帳號、同一色深的連線會接回原本的桌面。Xorg 類型的桌面色深固定是 24，所以 client 用 16 bit 連線也會接回同一個桌面（Task 10 實測） | `/etc/xrdp/sesman.ini` 的註解；`libipm/scp.c`（`/* bpp is fixed for Xorg session types */`） |
 
 ## 5. 架構
