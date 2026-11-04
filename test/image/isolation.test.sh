@@ -88,6 +88,12 @@ else
   finish
 fi
 
+# Hand the token to the poller as soon as the server exists (setup rewrites it
+# too), so the poller's token-value match covers the login window, not only the
+# post-kernel window. A setup action, not a threat-model assertion: no pass/bad.
+pxpy bob token --server-pid "$BOB_PID" --tokenfile "$TOKENFILE" >/dev/null 2>&1 \
+  || echo "  note: early token copy failed; poller relies on setup's copy" >&2
+
 say kernel-setup
 # As bob: start a kernel in his own server and copy his token to $TOKENFILE for
 # the poller. Prints "<connfile>\t<http port>".
@@ -102,6 +108,11 @@ else
 fi
 KERNEL_T0=$SECONDS
 
+# bob's kernel shell ROUTER port, read from his connection file. Handed to the
+# attacker so the unsigned-delivery assertion can target the shell channel
+# precisely (alice can also see this port in /proc/net/tcp, just not which one).
+SHELL_PORT=$(px "python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"shell_port\"])' $CONNFILE")
+
 say positive-control
 # As bob, with a correctly signed request, the payload DOES create its marker.
 if pxpy bob control --connfile "$CONNFILE" --touch "$PWNED_CONTROL" >/dev/null 2>&1 \
@@ -115,7 +126,7 @@ say attacks
 # Run every alice-side verification. Kernel-ZMQ waits 5s internally, so give it
 # room. attack.py emits one RESULT line per threat-model row.
 out=$(pxpy alice attack --bob-uid "$BOB_UID" --server-pid "$BOB_PID" \
-  --http-port "$HTTP_PORT" --connfile "$CONNFILE" \
+  --http-port "$HTTP_PORT" --shell-port "$SHELL_PORT" --connfile "$CONNFILE" \
   --pwned "$PWNED" --pwned-control "$PWNED_CONTROL" 2>&1) || true
 printf '%s\n' "$out" | sed 's/^/  attack.py: /'
 res() { printf '%s\n' "$out" | awk -F'\t' -v k="$1" '$1=="RESULT"&&$2==k{print $3"\t"$4; found=1} END{if(!found)print "MISSING\t"}'; }

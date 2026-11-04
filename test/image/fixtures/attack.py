@@ -7,13 +7,18 @@ importable. Every subcommand is driven by isolation.test.sh:
   poll     run as alice, before bob logs in: sample every /proc/*/cmdline about
            every 1 ms and record whether bob's Jupyter token ever leaked into an
            argument vector, until a stop file appears. Writes a JSON verdict.
+  token    run as bob, as soon as the server exists: copy bob's token to a file
+           the poller reads, so its token-value match also covers the login
+           window (not only the post-kernel window).
   setup    run as bob: start one kernel in bob's own server (reading bob's token
            from his server's environ, the port from his jpserver file) so a
            kernel and a 0600 connection file exist, and copy the token to a file
            for the poller. Prints the connection-file path and the HTTP port.
-  control  run as bob: positive control. Send a correctly signed execute_request
-           to bob's own kernel that creates a marker file, proving the payload
-           used by the unsigned attack below would run if a kernel accepted it.
+  control  run as bob: delivery positive control. Send a correctly signed
+           execute_request to bob's kernel over the SAME DEALER path the unsigned
+           attack uses (HMAC key from bob's connection file) and confirm it
+           creates a marker, so the unsigned attack's frame is proven to reach
+           the kernel and its failure is attributable to the missing signature.
   attack   run as alice: every isolation check from the threat-model table, one
            RESULT line each for isolation.test.sh to turn into a pass/bad line.
 
@@ -26,7 +31,6 @@ import errno
 import glob
 import json
 import os
-import socket
 import sys
 import time
 import urllib.error
@@ -155,6 +159,23 @@ def cmd_setup(args):
     if not connfile:
         print("setup: kernel connection file never appeared", file=sys.stderr)
         return 1
+    # Confirm the kernel is ready to service shell requests with a kernel_info
+    # handshake, so the signed control and the unsigned attack both hit a kernel
+    # that can execute. (REST execution_state stays "starting" until a channel
+    # client connects, so a handshake is the reliable readiness signal. This
+    # BlockingKernelClient is only used to wait here; the attack and its
+    # positive control both go through the raw DEALER path in _dealer_send.)
+    from jupyter_client import BlockingKernelClient
+    kc = BlockingKernelClient()
+    kc.load_connection_file(connfile)
+    kc.start_channels()
+    try:
+        kc.wait_for_ready(timeout=60)
+    except RuntimeError:
+        print("setup: kernel never became ready", file=sys.stderr)
+        return 1
+    finally:
+        kc.stop_channels()
     with open(args.tokenfile, "w") as fh:
         fh.write(token)
     os.chmod(args.tokenfile, 0o644)  # the poller runs as alice and must read it
@@ -162,17 +183,46 @@ def cmd_setup(args):
     return 0
 
 
+def cmd_token(args):
+    """Copy bob's token to a file the alice poller can read, as early as the
+    server exists, so the poller's token-value match covers the login window
+    too, not only the post-kernel window."""
+    token, _ = bob_token_and_port(args.server_pid)
+    if not token:
+        print("token: could not read bob's token", file=sys.stderr)
+        return 1
+    with open(args.tokenfile, "w") as fh:
+        fh.write(token)
+    os.chmod(args.tokenfile, 0o644)
+    return 0
+
+
 def cmd_control(args):
-    from jupyter_client import BlockingKernelClient
-    kc = BlockingKernelClient()
-    kc.load_connection_file(args.connfile)
-    kc.start_channels()
-    kc.wait_for_ready(timeout=30)
+    """Delivery positive control: send a correctly SIGNED execute_request to
+    bob's kernel over the SAME DEALER path the unsigned attack uses, with the
+    HMAC key read from bob's connection file. If this creates the marker, the
+    raw transport demonstrably reaches and runs code in the kernel, so the
+    unsigned attack failing to create its marker is attributable to the missing
+    signature, not to a frame that never arrived. Run as bob."""
+    conn = json.load(open(args.connfile))
+    key = conn["key"].encode()
+    port = conn["shell_port"]
     code = "open(%r, 'w').close()" % args.touch
-    kc.execute(code)
-    time.sleep(3)
-    kc.stop_channels()
-    return 0 if os.path.exists(args.touch) else 1
+    # setup already waited for the kernel to be ready; send the signed frame,
+    # then give the kernel a moment to run it before checking the marker.
+    end = time.monotonic() + 30
+    delivered = False
+    while time.monotonic() < end:
+        delivered = _dealer_send(port, code, key)
+        for _ in range(25):  # up to ~5 s for the kernel to execute
+            if os.path.exists(args.touch):
+                print("control: signed frame delivered to shell port %d, "
+                      "marker created" % port)
+                return 0
+            time.sleep(0.2)
+    print("control: delivered=%s touched=%s" % (delivered,
+          os.path.exists(args.touch)), file=sys.stderr)
+    return 1
 
 
 # ---------------------------------------------------------------------------
@@ -202,52 +252,63 @@ def is_http(port):
         return False
 
 
-def send_unsigned_execute(port, code):
-    """Send an unsigned execute_request to a kernel shell/control port.
+HANDSHAKE_TIMEOUT_MS = 3000
 
-    An empty signing key makes jupyter_client send an empty HMAC signature; a
-    kernel that has a real key rejects the frame, so the code never runs. Falls
-    back to hand-rolled ZMQ framing only if pyzmq is unavailable (it is not)."""
+
+def _dealer_send(port, code, key):
+    """Send one execute_request to a kernel ZMQ port over a DEALER socket and
+    prove the frame actually reaches the peer. key=b"" signs with an empty HMAC
+    (an unsigned request a keyed kernel rejects); a real key signs correctly.
+
+    Returns True when the ZMTP handshake with the peer completed, i.e. the peer
+    is a live kernel ROUTER and the frame was delivered to it; False when no
+    handshake completed within the timeout (the port is not a kernel ZMQ
+    socket). Delivery is made observable, not assumed:
+      * wait on the socket monitor for EVENT_HANDSHAKE_SUCCEEDED before sending,
+      * poll POLLOUT so the frame can be queued,
+      * set LINGER>0 so close() blocks until libzmq has flushed the frame to
+        the peer rather than discarding it (the LINGER=0 bug this replaces).
+    Unexpected socket errors propagate; the caller must not treat a failed send
+    as a blocked attack. Requires pyzmq, which the image's venv always has."""
+    import zmq
+    from jupyter_client.session import Session
+    from zmq.utils.monitor import recv_monitor_message
     content = {"code": code, "silent": True, "store_history": False,
                "user_expressions": {}, "allow_stdin": False}
+    # A fresh context per call: the monitor socket uses an inproc endpoint, and
+    # reusing the shared Context.instance() across a loop of sends leaks those
+    # and raises EADDRINUSE. ctx.term() below also blocks until LINGER flushes.
+    ctx = zmq.Context()
     try:
-        import zmq
-        from jupyter_client.session import Session
-        ctx = zmq.Context.instance()
-        sess = Session(key=b"")  # empty key -> unsigned
         sock = ctx.socket(zmq.DEALER)
-        sock.linger = 0
+        mon = sock.get_monitor_socket()  # must be taken before connect
         sock.connect("tcp://127.0.0.1:%d" % port)
-        sess.send(sock, "execute_request", content=content)
-        sock.close()
-    except ImportError:
-        _raw_unsigned_execute(port, content)
-
-
-def _raw_unsigned_execute(port, content):
-    import uuid
-    import struct
-    header = {"msg_id": uuid.uuid4().hex, "msg_type": "execute_request",
-              "username": "x", "session": uuid.uuid4().hex, "version": "5.3"}
-    frames = [b"<IDS|MSG>", b"",
-              json.dumps(header).encode(), b"{}", b"{}",
-              json.dumps(content).encode()]
-    sock = socket.create_connection(("127.0.0.1", port), timeout=3)
-    # Minimal ZMTP 3.0 NULL handshake for a DEALER peer, then one message.
-    # Best-effort only: pyzmq is always importable here, so this path is never
-    # taken; it exists so the unsigned attack still has a shot without pyzmq.
-    sock.sendall(b"\xff" + b"\x00" * 8 + b"\x7f\x03\x00")  # signature + version
-    sock.sendall(b"NULL" + b"\x00" * 16)
-    sock.recv(64)
-    cmd_body = b"\x05READY\x0bSocket-Type\x00\x00\x00\x06DEALER"
-    sock.sendall(struct.pack("!BB", 0x04, len(cmd_body)) + cmd_body)
-    for i, fr in enumerate(frames):
-        flag = 0x01 if i < len(frames) - 1 else 0x00
-        if len(fr) < 256:
-            sock.sendall(struct.pack("!BB", flag, len(fr)) + fr)
-        else:
-            sock.sendall(struct.pack("!BQ", flag | 0x02, len(fr)) + fr)
-    sock.close()
+        handshook = False
+        end = time.monotonic() + HANDSHAKE_TIMEOUT_MS / 1000.0
+        while time.monotonic() < end:
+            if mon.poll(100):
+                evt = recv_monitor_message(mon)
+                if evt["event"] == zmq.EVENT_HANDSHAKE_SUCCEEDED:
+                    handshook = True
+                    break
+        if not handshook:
+            sock.setsockopt(zmq.LINGER, 0)
+            sock.close()
+            mon.close()
+            return False
+        if not sock.poll(HANDSHAKE_TIMEOUT_MS, zmq.POLLOUT):
+            sock.setsockopt(zmq.LINGER, 0)
+            sock.close()
+            mon.close()
+            raise RuntimeError("port %d handshook but never became writable"
+                               % port)
+        Session(key=key).send(sock, "execute_request", content=content)
+        sock.setsockopt(zmq.LINGER, 5000)  # flush the frame to the peer
+        sock.close()                        # drains it (LINGER), then term waits
+        mon.close()
+        return True
+    finally:
+        ctx.term()
 
 
 def cmd_attack(args):
@@ -277,13 +338,20 @@ def cmd_attack(args):
     if code is not None:
         record("api_kernels", code == 403, "GET /api/kernels -> %s" % code)
 
-    # Row: read B's runtime dir / connection file
+    # Row: read B's runtime dir / connection file. Only EACCES proves isolation
+    # (the file exists but 0700 traversal denies it); a not-found would be a
+    # vacuous pass, so it fails loudly instead.
+    hits = glob.glob("/home/bob/.local/share/jupyter/runtime/kernel-*.json")
     try:
         open(args.connfile, "rb").read()
-        record("connfile", False, "connection file was readable")
-    except (PermissionError, FileNotFoundError) as e:
-        hits = glob.glob("/home/bob/.local/share/jupyter/runtime/kernel-*.json")
-        record("connfile", True, "%s; glob=%r" % (type(e).__name__, hits))
+        record("connfile", False, "connection file %s was readable" % args.connfile)
+    except PermissionError as e:
+        record("connfile", True, "PermissionError on %s; alice glob=%r"
+               % (args.connfile, hits))
+    except FileNotFoundError as e:
+        record("connfile", False,
+               "FileNotFoundError on %s (wrong path, vacuous): %s"
+               % (args.connfile, e))
     except Exception as e:  # noqa: BLE001
         record("connfile", False, "unexpected %s: %s" % (type(e).__name__, e))
 
@@ -294,15 +362,39 @@ def cmd_attack(args):
         pass
     ports = bob_listen_ports(args.bob_uid)
     zmq_ports = [p for p in ports if not is_http(p)]
+    code = "open(%r, 'w').close()" % args.pwned
+    shell = args.shell_port
+    if shell not in zmq_ports:
+        zmq_ports.append(shell)  # ensure the kernel's shell ROUTER is targeted
+    delivered = []       # ports whose ZMTP handshake completed (frame delivered)
+    errors = []          # send failures: recorded, never silently ignored
+    shell_delivered = False
+    shell_error = None
     for p in zmq_ports:
         try:
-            send_unsigned_execute(p, "open(%r, 'w').close()" % args.pwned)
-        except Exception:  # noqa: BLE001
-            pass
+            d = _dealer_send(p, code, b"")
+            if d:
+                delivered.append(p)
+            if p == shell:
+                shell_delivered = d
+        except Exception as e:  # noqa: BLE001
+            errors.append("%d:%s:%s" % (p, type(e).__name__, e))
+            if p == shell:
+                shell_error = "%s: %s" % (type(e).__name__, e)
     time.sleep(5)
     pwned = os.path.exists(args.pwned)
-    record("kernel_zmq", not pwned,
-           "ports=%s zmq=%s %s exists=%s" % (ports, zmq_ports, args.pwned, pwned))
+    # Pass only if the unsigned frame was actually delivered to the kernel's
+    # shell ROUTER (handshake proven, no send error) and still no code ran.
+    # Delivery-without-execution is what proves the HMAC check rejected it; the
+    # control row sends through this same path WITH a valid signature and does
+    # create its marker, isolating the signature as the only difference.
+    record("kernel_zmq",
+           (not pwned) and shell_delivered and shell_error is None,
+           "shell_port=%d shell_delivered=%s shell_error=%s "
+           "all_delivered=%s other_errors=%s %s exists=%s"
+           % (shell, shell_delivered, shell_error, delivered,
+              [e for e in errors if not e.startswith("%d:" % shell)],
+              args.pwned, pwned))
 
     # Row: read B's home dir
     try:
@@ -380,6 +472,11 @@ def main():
     sp.add_argument("--max-seconds", type=int, default=600)
     sp.set_defaults(func=cmd_poll)
 
+    sp = sub.add_parser("token")
+    sp.add_argument("--server-pid", required=True)
+    sp.add_argument("--tokenfile", required=True)
+    sp.set_defaults(func=cmd_token)
+
     sp = sub.add_parser("setup")
     sp.add_argument("--server-pid", required=True)
     sp.add_argument("--tokenfile", required=True)
@@ -394,6 +491,7 @@ def main():
     sp.add_argument("--bob-uid", type=int, required=True)
     sp.add_argument("--server-pid", required=True)
     sp.add_argument("--http-port", type=int, required=True)
+    sp.add_argument("--shell-port", type=int, required=True)
     sp.add_argument("--connfile", required=True)
     sp.add_argument("--pwned", required=True)
     sp.add_argument("--pwned-control", required=True)
