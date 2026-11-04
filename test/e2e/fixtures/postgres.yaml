@@ -1,0 +1,97 @@
+# E2E data service: a PostgreSQL 16 with a tiny seeded table, for the stateless
+# scenario to query over the cluster network with pandas.read_sql.
+# Namespace rdp-jupyter-e2e-data is created and torn down by test/e2e/run.sh.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rdp-jupyter-e2e-data
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pg-init
+  namespace: rdp-jupyter-e2e-data
+data:
+  # Runs once on first start (/docker-entrypoint-initdb.d). Seeds three rows so
+  # the notebook can assert a known row count and sum.
+  init.sql: |
+    CREATE TABLE readings (
+      id     serial PRIMARY KEY,
+      city   text    NOT NULL,
+      temp_c numeric NOT NULL
+    );
+    INSERT INTO readings (city, temp_c) VALUES
+      ('Taipei',    27.5),
+      ('Kaohsiung', 29.0),
+      ('Hsinchu',   24.5);
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg
+  namespace: rdp-jupyter-e2e-data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pg
+  template:
+    metadata:
+      labels:
+        app: pg
+    spec:
+      containers:
+      - name: postgres
+        image: docker.io/library/postgres:16
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: POSTGRES_USER
+          value: analyst
+        - name: POSTGRES_PASSWORD
+          value: analyst
+        - name: POSTGRES_DB
+          value: analytics
+        # emptyDir mounts without a lost+found, so initdb does not need an empty
+        # subdir; keep PGDATA off the mount root anyway for clarity.
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        ports:
+        - name: pg
+          containerPort: 5432
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-U", "analyst", "-d", "analytics"]
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "1"
+            memory: "512Mi"
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+        - name: init
+          mountPath: /docker-entrypoint-initdb.d
+          readOnly: true
+      volumes:
+      - name: data
+        emptyDir: {}
+      - name: init
+        configMap:
+          name: pg-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg
+  namespace: rdp-jupyter-e2e-data
+spec:
+  selector:
+    app: pg
+  ports:
+  - name: pg
+    port: 5432
+    targetPort: pg
