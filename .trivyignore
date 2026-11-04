@@ -18,11 +18,17 @@
 # DECISION 2026-11-04 (maintainer): ACCEPT the risk and keep this entry, because
 # no patched JupyterLab Desktop release exists yet (core jupyterlab 4.6.4/4.6.5
 # are out, but the latest Desktop tag is still 4.6.3-1; the bundle bump is an
-# unreleased, merged PR). The deployment is a single-user-per-pod kiosk where the
-# only principal is the analyst, so a clipboard/language-pack XSS against oneself
-# has low practical value. REVISIT when JupyterLab Desktop publishes 4.6.4-1 or
-# later: at that point bump the Desktop bundle and the pip pin together and drop
-# this line. See docs/ops/2026-11-04-accepted-risks.md.
+# unreleased, merged PR). Rationale: rdp-jupyter runs multiple accounts in one
+# pod (spec section 6). This XSS executes in the victim's OWN frontend/renderer,
+# under the victim's OWN UID, and does NOT cross the UID account-isolation
+# boundary. Spec section 6's --no-sandbox decision already explicitly accepts a
+# renderer compromise that gains only the user's own UID (account-to-account
+# isolation is unaffected), so the residual here is self-targeted (pasting a
+# malicious cell, or opening an untrusted notebook) -- the same class of
+# already-accepted renderer risk, with no new cross-account break. REVISIT when
+# JupyterLab Desktop publishes 4.6.4-1 or later: at that point bump the Desktop
+# bundle and the pip pin together and drop this line.
+# See docs/ops/2026-11-04-accepted-risks.md.
 CVE-2026-102831  # jupyterlab 4.6.3 XSS: no patched JupyterLab Desktop release; accepted 2026-11-04, revisit on JLD 4.6.4-1+
 
 # setuptools 70.3.0 -> 78.1.1 (path traversal in setuptools.package_index).

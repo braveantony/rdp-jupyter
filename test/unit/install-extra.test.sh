@@ -75,6 +75,20 @@ SECONDS=0; run FAKE_PIP_SLEEP=5 INSTALL_TIMEOUT=1
 [ "$rc" -eq 0 ] && [ "$SECONDS" -lt 4 ] && [ "$(cur)" = "$before" ] && [ -s "$EXTRA/FAILED" ] && [ "$(tmps)" -eq 0 ] \
   && pass "timeout fails" || bad "timeout: rc=$rc secs=$SECONDS cur=$(cur)"
 
+# Pre-install failure (lock open fails because .lock is a directory): EXTRA_DIR
+# exists and is writable, so the FAILED file must be written for notify-extra.
+new_env; mkdir -p "$EXTRA" "$EXTRA/.lock"; run
+[ "$rc" -eq 0 ] && [ "$(ncalls)" -eq 0 ] && [ -s "$EXTRA/FAILED" ] && [ ! -e "$EXTRA/current" ] \
+  && pass "pre-install failure writes FAILED" || bad "pre-install FAILED: rc=$rc calls=$(ncalls) $(cat "$EXTRA/FAILED" 2>&1)"
+
+# Stamp write failure (.stamp.new is a directory): packages install and current
+# switches, but the stamp cannot be persisted -> write FAILED, do NOT log installed.
+new_env; mkdir -p "$EXTRA"; mkdir -p "$EXTRA/.stamp.new"; run
+[ "$rc" -eq 0 ] && [ -e "$EXTRA/current/marker" ] && grep -q 'could not persist stamp' "$EXTRA/FAILED" \
+  && ! grep -q '] installed (' "$LOG" && [ ! -e "$EXTRA/.stamp" ] \
+  && pass "stamp failure writes FAILED, no installed" \
+  || bad "stamp failure: rc=$rc cur=$(cur) $(cat "$EXTRA/FAILED" 2>&1)"
+
 say misc
 new_env; mkdir -p "$EXTRA/abc.tmp"; run
 [ ! -e "$EXTRA/abc.tmp" ] && [ -e "$EXTRA/current/marker" ] && pass "leftover tmp cleaned" || bad "leftover tmp"

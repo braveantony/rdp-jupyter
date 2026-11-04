@@ -443,7 +443,12 @@ PY
   sleep 3
   after=$(restart_count); reason=$(last_oom)
   if [ -n "$after" ] && [ "$after" != "$before" ]; then
-    result="WHOLE_POD_KILLED (restartCount $before -> $after, lastState=$reason)"
+    # A restart only counts as an OOM kill when the kubelet recorded OOMKilled;
+    # any other restart reason is logged as-is, not misattributed to the OOM test.
+    case $reason in
+      *OOMKilled*) result="WHOLE_POD_KILLED (restartCount $before -> $after, lastState=$reason)" ;;
+      *)           result="UNKNOWN_RESTART (restartCount $before -> $after, reason=${reason:-<none>})" ;;
+    esac
   elif kx 'test -e /tmp/oom-touched' 2>/dev/null; then
     result="NO_OOM (5GB allocation completed; cgroup limit not enforced as expected)"
   else

@@ -93,6 +93,7 @@ kubectl apply -k manifests/example/requirements
 - 這個範例以 `manifests/stateless` 為基礎，所以帳號清單是 `manifests/stateless/users.txt`。
 - `configMapGenerator` 會在 ConfigMap 名稱後面加內容雜湊，所以改了 `requirements.txt` 就會觸發 Pod 重建、重新安裝。要跳過安裝得同時滿足：先前的安裝結果還在（stateless 的 emptyDir 一旦 Pod 重建就沒了，所以新 Pod 一定會重裝；stateful 的 PVC 才留得住），而且 `requirements.txt`、`PIP_INDEX_URL` 和映像檔版本三者都沒變。
 - 安裝失敗（例如套件名稱打錯、連不到 PyPI）不會害 Pod 啟動失敗，而是在桌面跳出一個通知，log 也看得到（`kubectl -n rdp-jupyter logs deploy/rdp-jupyter`）。
+- **stateful 模式移除套件**：把 `requirements.txt` 清空或刪掉 ConfigMap 並不會解除安裝 PVC 上已裝好的額外套件——它們仍透過 venv 的 `.pth` 被載入。要真正移除，得清掉 PVC 的 extra 目錄（`/opt/jupyter/extra`，對應 `rdp-jupyter-extra` PVC），或直接刪掉該 PVC。stateless 模式則因為 emptyDir 隨 Pod 消失，不受此限。
 - 要可重現的安裝（鎖定版本和 hash），把 `configMapGenerator` 的 `files:` 改成 `- requirements.txt=requirements-hashed.txt`，`install-extra.sh` 會自動加上 `--require-hashes`。**等號左邊的 ConfigMap key 必須維持 `requirements.txt`，只換右邊的來源檔**；如果直接寫 `- requirements-hashed.txt`，key 會變成 `requirements-hashed.txt`，而 `install-extra.sh` 只讀 `requirements.txt` 這個 key，結果會靜默地什麼都不裝。產生 hash 的指令在 `requirements-hashed.txt` 的註解裡。
 - 使用者也可以不靠管理者，自己在 notebook 裡 `%pip install --user <套件>`，裝到自己的 `~/.local`，只影響自己（stateful 模式會保留）。詳見[使用手冊](user-guide.md)。
 

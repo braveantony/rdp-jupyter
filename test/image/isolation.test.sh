@@ -106,6 +106,7 @@ else
   bad "could not start bob's kernel: $raw"
   finish
 fi
+# shellcheck disable=SC2034  # used inside the single-quoted wait_for condition (eval'd at line 151)
 KERNEL_T0=$SECONDS
 
 # bob's kernel shell ROUTER port, read from his connection file. Handed to the
@@ -148,7 +149,7 @@ check "positive control confirmed by attacker" control
 say cmdline-poll
 # Let the poller run 60s past the kernel start (spec: catch the token flashing
 # into any argv during login + kernel launch), then stop it and read its verdict.
-wait_for 60 "[ $((SECONDS - KERNEL_T0)) -ge 60 ]" || true
+wait_for 60 '[ $((SECONDS - KERNEL_T0)) -ge 60 ]' || true
 px "touch $STOPFILE"
 wait_for 20 "px 'test -s $VERDICT'" || bad "poller wrote no verdict"
 verdict=$(px "cat $VERDICT 2>/dev/null")

@@ -20,11 +20,19 @@ log() {
   printf '[install-extra] %s\n' "$*" | tee -a "$LOG_OUT" 2>/dev/null || true
 }
 
+# Best-effort failure record for notify-extra.sh (which pops it on the desktop):
+# always log, and when $EXTRA_DIR exists, write the reason to $EXTRA_DIR/FAILED.
+# Safe to call on any failure path; a read-only EXTRA_DIR just means log-only.
+fail() {
+  log "$1"
+  [ -d "$EXTRA_DIR" ] && printf '%s\n' "$1" >"$EXTRA_DIR/FAILED" 2>/dev/null || true
+}
+
 main() {
   [ -r "$REQ_FILE" ] || { log "no requirements file, nothing to do"; return 0; }
 
   local clean_req hash version=''
-  clean_req=$(mktemp) || { log "cannot create temp file"; return 0; }
+  clean_req=$(mktemp) || { fail "cannot create temp file"; return 0; }
   # shellcheck disable=SC2064  # expand now: the path is fixed
   trap "rm -f '$clean_req'" RETURN
   tr -d '\r' <"$REQ_FILE" >"$clean_req"
@@ -36,10 +44,10 @@ main() {
   hash=$({ cat "$clean_req"; printf '\n%s\n%s\n' "${PIP_INDEX_URL:-}" "$version"; } \
     | sha256sum | cut -c1-16)
 
-  mkdir -p "$EXTRA_DIR" || { log "cannot create $EXTRA_DIR"; return 0; }
+  mkdir -p "$EXTRA_DIR" || { fail "cannot create $EXTRA_DIR"; return 0; }
   # Serialize: postStart is at-least-once, and runs may overlap.
-  exec 9>"$EXTRA_DIR/.lock" || { log "cannot open lock file"; return 0; }
-  flock 9 || { log "cannot take lock"; return 0; }
+  exec 9>"$EXTRA_DIR/.lock" || { fail "cannot open lock file"; return 0; }
+  flock 9 || { fail "cannot take lock"; return 0; }
 
   if [ "$(cat "$EXTRA_DIR/.stamp" 2>/dev/null)" = "$hash" ] && [ -d "$EXTRA_DIR/current/" ]; then
     rm -f "$EXTRA_DIR/FAILED"
@@ -49,7 +57,7 @@ main() {
 
   rm -rf "$EXTRA_DIR"/*.tmp "$EXTRA_DIR/.tmpdir"
   local tmpdir=$EXTRA_DIR/.tmpdir target=$EXTRA_DIR/$hash.tmp
-  mkdir -p "$tmpdir" || { log "cannot create $tmpdir"; return 0; }
+  mkdir -p "$tmpdir" || { fail "cannot create tmp dir $tmpdir"; return 0; }
 
   local -a cmd
   read -r -a cmd <<<"$PIP_CMD"
@@ -58,7 +66,7 @@ main() {
 
   log "installing extra packages ($hash)"
   local err rc
-  err=$(mktemp "$tmpdir/pip-out.XXXXXX") || { log "cannot create temp file"; return 0; }
+  err=$(mktemp "$tmpdir/pip-out.XXXXXX") || { fail "cannot create temp file"; return 0; }
   TMPDIR=$tmpdir timeout "$INSTALL_TIMEOUT" "${cmd[@]}" >"$err" 2>&1 </dev/null 9>&-
   rc=$?
 
@@ -87,7 +95,18 @@ main() {
     rm -rf "$target" "$tmpdir" "$EXTRA_DIR/.current.new"
     return 0
   fi
-  printf '%s\n' "$hash" >"$EXTRA_DIR/.stamp.new" && mv -f "$EXTRA_DIR/.stamp.new" "$EXTRA_DIR/.stamp"
+  # Persist the stamp last. If this fails the packages are already in place and
+  # `current` points at them, but without the stamp the next start reinstalls
+  # (idempotent). Record FAILED so notify-extra shows it; do NOT clear FAILED or
+  # claim "installed".
+  if ! { printf '%s\n' "$hash" >"$EXTRA_DIR/.stamp.new" \
+    && mv -f "$EXTRA_DIR/.stamp.new" "$EXTRA_DIR/.stamp"; }; then
+    echo "could not persist stamp for $hash" >"$EXTRA_DIR/FAILED"
+    log "install FAILED: could not persist stamp (packages in place; will reinstall next start)"
+    rm -f "$EXTRA_DIR/.stamp.new"
+    rm -rf "$tmpdir"
+    return 0
+  fi
   rm -f "$EXTRA_DIR/FAILED"
   rm -rf "$tmpdir"
 
