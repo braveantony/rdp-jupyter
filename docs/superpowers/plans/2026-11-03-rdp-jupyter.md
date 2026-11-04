@@ -30,7 +30,7 @@
 
 1. **`requirements.txt` 內容很亂**：Windows 換行（CRLF）、只有註解或空行、ConfigMap 存在但是空的。只有註解或空白時視為沒有套件；CRLF 要去掉 → Task 4
 2. **`KERNEL_MEMORY_LIMIT` 設得太小**（例如 `256Mi`）：Jupyter server 自己就起不來，使用者只看到啟動失敗。低於 `1Gi` 時改用 `1Gi` 並印出警告 → Task 2
-3. **用不同色深重新連線**（例如手機上的 RDP 用 16 bit）：`Policy=Default` 是依帳號加色深判斷，會開第二個桌面。第二個桌面要能正常啟動，不能卡在 single-instance → Task 10
+3. **用不同色深重新連線**（例如手機上的 RDP 用 16 bit）：Xorg 桌面的色深固定是 24（F12），所以會接回原本的桌面，而不是開第二個。要能看到原本的 JupyterLab 畫面 → Task 10
 4. **使用者在選單改過語言**：重新登入後要保留使用者的選擇，不能被 `JUPYTER_LOCALE` 蓋掉 → Task 10
 5. **stateful 模式升級映像檔**：PVC 上的額外套件是用舊版 Python/numpy 裝的，`requirements.txt` 沒變也要重裝 → Task 4
 
@@ -277,7 +277,7 @@ RDP_JUPYTER_SESSION_ENV=/nonexistent GEN=$GEN bash -c '. $GEN; echo alive' | gre
 - Consumes: Task 2 的 `session.env`、Task 5 的 `desktop-settings.sh`
 - Produces:
   - `notify-extra.sh`：`$EXTRA_DIR/FAILED` 存在時，以 `${XMESSAGE:-xmessage} -center` 顯示「額外套件安裝失敗」加上檔案內容；不存在就什麼都不做
-  - `startwm.sh`：沿用 rdp-vscode 的 session 目錄規則（`/tmp/sess/<display>.<uid>`、拒絕不屬於自己的目錄）、dbus、trap 清理（TERM → 等 10 秒 → KILL）。改動的部分：`XDG_CONFIG_HOME=$S/xdg`；`JLAB_DESKTOP_CONFIG_DIR=$HOME/.jupyter`；寫入 `$S/xdg/jupyterlab-desktop/settings.json`；背景執行 `notify-extra.sh`；直接執行 `/opt/JupyterLab/jupyterlab-desktop`（背景執行再 `wait`）
+  - `startwm.sh`：沿用 rdp-vscode 的 session 目錄規則（`/tmp/sess/<display>.<uid>`、拒絕不屬於自己的目錄）、dbus、trap 清理（TERM → 等 10 秒 → KILL）。改動的部分：`XDG_CONFIG_HOME=$S/xdg`；`JLAB_DESKTOP_CONFIG_DIR=$HOME/.jupyter`；寫入 `$S/xdg/jupyterlab-desktop/settings.json`；背景執行 `notify-extra.sh`；直接執行 `/opt/JupyterLab/jupyterlab-desktop --no-sandbox`（背景執行再 `wait`；`--no-sandbox` 的理由見 spec 第 6 節）
 
 - [ ] **Step 1: 寫 `notify-extra.test.sh`**：用假的 `XMESSAGE`（寫入參數到檔案），斷言 `FAILED` 存在時有呼叫、參數含檔案內容；不存在時沒呼叫
 - [ ] **Step 2: 執行**，預期 FAIL；**Step 3: 實作**；**Step 4: 執行**，預期 PASS

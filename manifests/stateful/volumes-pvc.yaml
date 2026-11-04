@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rdp-jupyter
+spec:
+  template:
+    spec:
+      containers:
+      - name: desktop
+        volumeMounts:
+        - name: home
+          mountPath: /home
+        - name: extra
+          mountPath: /opt/jupyter/extra
+      volumes:
+      - name: home
+        persistentVolumeClaim:
+          claimName: rdp-jupyter-home
+      - name: extra
+        persistentVolumeClaim:
+          claimName: rdp-jupyter-extra

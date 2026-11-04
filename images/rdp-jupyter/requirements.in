@@ -1,0 +1,13 @@
+# Base Python environment of the image; compile the lock with:
+#   uv pip compile --generate-hashes --python-version 3.13 \
+#     --python-platform x86_64-unknown-linux-gnu -o requirements.lock requirements.in
+# jupyterlab is pinned to the version JupyterLab Desktop 4.6.3-1 bundles
+# (resources/env_installer/jlab_server.tar.gz: conda-meta/jupyterlab-4.6.3).
+jupyterlab==4.6.3
+ipykernel
+pandas
+matplotlib
+jupyterlab-language-pack-zh-TW
+jupyter-resource-usage
+# uv venv does not seed pip; %pip install --user (spec section 8) needs it
+pip

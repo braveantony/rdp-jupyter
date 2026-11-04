@@ -1,0 +1,16 @@
+# Example: install extra Python packages at pod start from a requirements file.
+#   kubectl apply -k manifests/example/requirements
+# configMapGenerator adds a content hash to the ConfigMap name, so editing
+# requirements.txt yields a new name and kustomize rewrites the Deployment's
+# reference to it; the rollout then re-runs install-extra.sh with the new list.
+# For reproducible installs, swap requirements.txt for requirements-hashed.txt
+# (pip --hash pins); install-extra.sh enables --require-hashes automatically.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: rdp-jupyter
+resources:
+- ../../stateless
+configMapGenerator:
+- name: rdp-jupyter-requirements
+  files:
+  - requirements.txt

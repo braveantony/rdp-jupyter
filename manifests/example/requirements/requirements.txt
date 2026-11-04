@@ -1,0 +1,5 @@
+# Extra Python packages installed into every session at pod start.
+# One requirement per line, pip syntax. Keep it small; the base image already
+# ships the scientific stack (numpy, pandas, matplotlib), so pick packages that
+# are NOT already there. humanize is a tiny, pure-Python example:
+humanize

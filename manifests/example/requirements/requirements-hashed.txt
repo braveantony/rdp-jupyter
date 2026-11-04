@@ -1,0 +1,11 @@
+# Reproducible variant: every package pinned to an exact version with sha256
+# hashes. When install-extra.sh sees a "--hash=" it runs pip with
+# --require-hashes, so EVERY requirement (and its transitive deps) must be
+# pinned and hashed here. Generate this file with:
+#   uv pip compile --generate-hashes --python-version 3.13 \
+#     --python-platform x86_64-unknown-linux-gnu requirements.txt -o requirements-hashed.txt
+# To use it, point the configMapGenerator's `files:` at this file instead
+# (keep the published key as requirements.txt).
+humanize==4.16.0 \
+    --hash=sha256:353eb2f34c09d098b2880eee8bef21832eae6d174f48c5762fff7e5fcb74d01d \
+    --hash=sha256:7dc2244a2f84a4bfb1d36c37bac80cd78e35cdc5c119206d87b018e1445f3a3f

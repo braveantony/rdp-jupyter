@@ -1,0 +1,15 @@
+# Stateful: /home and /opt/jupyter/extra are PVCs from the cluster's default
+# StorageClass. That class must bind on first use (WaitForFirstConsumer, e.g.
+# local-path) or be network storage; see README.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: rdp-jupyter
+resources:
+- ../base
+- pvc.yaml
+patches:
+- path: volumes-pvc.yaml
+secretGenerator:
+- name: rdp-jupyter-users
+  files:
+  - users=users.txt

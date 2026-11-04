@@ -53,7 +53,7 @@
 
 | 項目 | 結果 |
 |---|---|
-| 透過 xrdp 顯示 | 正常，不用加 `--no-sandbox` |
+| 透過 xrdp 顯示 | 本機 podman 正常；但在 tk8s（CRI-O、RuntimeDefault seccomp）上 Electron sandbox 起不來（`unshare` 回 ENOSYS，「No usable sandbox!」），見第 6 節「Electron sandbox」 |
 | 執行 notebook | pandas、matplotlib、對外連線都正常 |
 | 只用 `--python-path` 指定環境 | 不夠，會出現「No default environment found」；要寫 `settings.json` 的 `pythonPath` |
 | 上游內建的 conda 環境 | 解壓縮後要用環境自己的 python 執行 `conda-unpack`，不然 kernel 路徑錯誤 |
@@ -80,8 +80,8 @@
 | F8 | kernel connection file 用 `secure_write` 寫成 0600；ZMQ 訊息有 HMAC 簽章 | `jupyter_client/connect.py`、`jupyter_core/paths.py` |
 | F9 | 支援 `MappingKernelManager.cull_idle_timeout`、`cull_interval`、`cull_busy`、`cull_connected` | `jupyter_server/services/kernels/kernelmanager.py` |
 | F10 | postStart 和 ENTRYPOINT 同時開始；hook 失敗容器就會被殺；hook 可能執行不只一次；hook 執行完之前，容器可能不會進入 Running；失敗時只留下 `FailedPostStartHook` 事件 | Kubernetes 文件 `container-lifecycle-hooks.md` |
-| F11 | tk8s 是 v1.37.1、cgroup v2，沒有設定 `singleProcessOOMKill`，所以容器 OOM 時整個被殺（`memory.oom.group`） | `kubectl get --raw .../configz`；行為要在 e2e 實測確認 |
-| F12 | xrdp 0.10.1 的 `Policy=Default` 等於 `UB`：同一帳號、同一色深的連線會接回原本的桌面 | `/etc/xrdp/sesman.ini` 的註解 |
+| F11 | tk8s 是 v1.37.1、cgroup v2，沒有設定 `singleProcessOOMKill`，所以容器 OOM 時整個被殺（`memory.oom.group`） | `kubectl get --raw .../configz`；**2026-11-04 e2e 實測確認**：`memory.oom.group=1`、`singleProcessOOMKill` 未設、配置 5GB 超過 4Gi limit 時整個 Pod 被 OOMKilled 重啟（restartCount 0→1），見 `docs/ops/2026-11-04-tk8s-e2e.md` |
+| F12 | xrdp 0.10.1 的 `Policy=Default` 等於 `UB`：同一帳號、同一色深的連線會接回原本的桌面。Xorg 類型的桌面色深固定是 24，所以 client 用 16 bit 連線也會接回同一個桌面（Task 10 實測） | `/etc/xrdp/sesman.ini` 的註解；`libipm/scp.c`（`/* bpp is fixed for Xorg session types */`） |
 
 ## 5. 架構
 
@@ -113,7 +113,7 @@
 
 | 路徑 | 用途 |
 |---|---|
-| `$S/xdg` | `XDG_CONFIG_HOME`，也就是這個桌面的 `userData`（F3）。`Policy=Default` 下同一帳號通常只有一個桌面，但色深不同時還是可能有兩個，所以保留這個隔離 |
+| `$S/xdg` | `XDG_CONFIG_HOME`，也就是這個桌面的 `userData`（F3）。`Policy=Default` 下同一帳號只會有一個桌面（F12），這個隔離是保險：萬一同一帳號出現兩個桌面（例如之後改用 `Policy=Separate`），JupyterLab Desktop 的 single-instance 鎖不會讓第二個桌面一啟動就結束 |
 | `$S/xdg/jupyterlab-desktop/settings.json` | 每次啟動都重新寫入（見下表） |
 | `$S/run` | `XDG_RUNTIME_DIR` |
 | `~/.jupyter` | `JLAB_DESKTOP_CONFIG_DIR`（F4）：JupyterLab 的使用者設定（主題、快捷鍵等），在桌面之間共用，stateful 模式會保留 |
@@ -126,7 +126,7 @@
 | `startupMode` | `new-local-session` |
 | `checkForUpdatesAutomatically`、`installUpdatesAutomatically`、`notifyOnBundledEnvUpdates`、`showNewsFeed` | `false` |
 | `defaultWorkingDirectory` | `$HOME` |
-| `serverArgs` | `--MappingKernelManager.cull_idle_timeout=<KERNEL_CULL_IDLE_TIMEOUT> --MappingKernelManager.cull_interval=300`（F2：只能從這裡傳） |
+| `serverArgs` | `--MappingKernelManager.cull_idle_timeout=<KERNEL_CULL_IDLE_TIMEOUT> --MappingKernelManager.cull_interval=300 --ResourceUseDisplay.mem_limit=<KERNEL_MEMORY_LIMIT 換算成 bytes>`（F2：只能從這裡傳） |
 
 ### 語系
 
@@ -156,6 +156,14 @@ entrypoint 依 `JUPYTER_LOCALE` 產生 `/opt/jupyter/venv/share/jupyter/lab/sett
 - patch 用腳本 `images/rdp-jupyter/patches/token-env.sh` 執行：每處修改都先確認原文剛好出現一次，否則讓建置失敗。升級上游時，patch 失效會在建置階段就被擋下
 - 文件記錄這個 patch，之後可以送回上游
 
+### Electron sandbox（Task 0 結果，使用者決定）
+
+- tk8s 的 RuntimeDefault seccomp 擋掉 `unshare`，Chromium 的 namespace sandbox 無法啟動；JupyterLab Desktop 的套件沒有 `chrome-sandbox`，就算有，`allowPrivilegeEscalation: false`（NoNewPrivs）也會讓 SUID 失效
+- 決定：`startwm.sh` 啟動 `jupyterlab-desktop` 時加 `--no-sandbox`。Pod 維持 RuntimeDefault seccomp，符合 Pod Security baseline（A8）
+- 理由：這份威脅模型的邊界是 UID。renderer 被攻破後拿到的是使用者自己的 UID，而使用者本來就能透過 kernel 以這個 UID 執行任意程式；帳號之間的隔離（上表）不受影響
+- 不採用：seccomp `Unconfined`（所有 kernel 失去 syscall 過濾、違反 A8）；Localhost seccomp profile（要改每個節點）
+- 代價：惡意 notebook 輸出若攻破 renderer，可以用該使用者的權限做事，等同使用者自己執行程式
+
 ### 其他
 
 - 帳號密碼來自 Secret，不寫進映像檔；TLS 憑證在容器啟動時產生（沿用 rdp-vscode）
@@ -178,6 +186,7 @@ entrypoint 依 `JUPYTER_LOCALE` 產生 `/opt/jupyter/venv/share/jupyter/lab/sett
 ### 斷線與重新連線（D6）
 
 - `sesman.ini`：`Policy=Default`、`KillDisconnected=true`，`DisconnectedTimeLimit` 由 `DISCONNECTED_TIMEOUT` 決定，預設 `28800`（8 小時）
+- 最短是 60 秒：xrdp 0.10 由 xorgxrdp 負責清掉斷線的桌面，它會把小於 60 的值當成 60，而且每 10 秒才檢查一次（`module/rdpClientCon.c`），所以實際會在逾時後 0～10 秒內清掉。entrypoint 遇到小於 60 的值會改成 60，並在 log 印出警告
 - entrypoint 依環境變數改寫 `sesman.ini`（只接受正整數，不合法時用預設值並在 log 印出警告）
 - `MAX_SESSIONS` 的計算包含斷線中的桌面，文件要寫明
 - 同一帳號第二次登入會接回原本的桌面，第一個連線會被中斷
@@ -227,14 +236,16 @@ entrypoint 依 `JUPYTER_LOCALE` 產生 `/opt/jupyter/venv/share/jupyter/lab/sett
 
 ### 大小預算（解壓縮後）
 
-| 部分 | 估計 |
+| 部分 | 實測（Task 9） |
 |---|---|
-| 基底與 Xorg 等套件 | ~650 MB |
-| JupyterLab Desktop | ~265 MB |
-| venv 與系統 Python | ~290 MB |
-| 合計 | ~1.2 GB（上限，由測試強制檢查） |
+| 基底（debian:trixie-slim） | 81 MB |
+| Xorg、xrdp、GTK、字型、系統 Python 等套件（已拿掉 Mesa/LLVM、Noto Serif CJK、locale 原始檔） | 314 MB |
+| JupyterLab Desktop（含壓縮後的 Chromium 授權檔） | 281 MB |
+| venv | 381 MB |
+| uv | 42 MB |
+| 合計 | 1.10 GB（1,100,544,807 bytes；上限 1.2 GB，由測試強制檢查） |
 
-如果超過，先用 `dive` 找出最大的層，再評估拿掉 Mesa/LLVM 等 Xorg 不需要的依賴。
+如果超過，先用 `dive` 找出最大的層，再評估拿掉 Mesa/LLVM 等 Xorg 不需要的依賴。Task 9 的量測與取捨記在 `docs/spike-notes.md` 第 6 節。
 
 ### 供應鏈
 
@@ -262,7 +273,7 @@ postStart：`exec: ["/opt/rdp-jupyter/install-extra.sh"]`；ConfigMap `rdp-jupyt
 | `USERS_FILE` | `/etc/rdp-jupyter/users` | 帳號檔案，一行一個 `帳號:密碼` |
 | `RDP_USER`、`RDP_PASSWORD` | `bigred`、— | 沒有帳號檔案時使用（單機 podman） |
 | `MAX_SESSIONS` | `3` | 桌面數上限（包含斷線中的桌面） |
-| `DISCONNECTED_TIMEOUT` | `28800` | 斷線的桌面保留幾秒 |
+| `DISCONNECTED_TIMEOUT` | `28800` | 斷線的桌面保留幾秒；最短 60 秒（xorgxrdp 的限制），小於 60 會改成 60 並印出警告 |
 | `KERNEL_MEMORY_LIMIT` | `2Gi` | 每個 kernel 的記憶體硬上限；接受 `Mi`、`Gi` 單位 |
 | `KERNEL_THREADS` | `2` | BLAS/OpenMP 執行緒數 |
 | `KERNEL_CULL_IDLE_TIMEOUT` | `3600` | 閒置 kernel 幾秒後回收；`0` 代表不回收 |
@@ -283,7 +294,7 @@ rdp-jupyter/
 │   └── rootfs/
 │       ├── opt/rdp-jupyter/   # entrypoint.sh、accounts.sh、session-env.sh、server-env.sh、install-extra.sh、notify-extra.sh
 │       ├── etc/xrdp/startwm.sh
-│       └── etc/skel/.config/openbox/rc.xml
+│       └── etc/rdp-jupyter/openbox-rc.xml   # kiosk 視窗規則，root 擁有；startwm.sh 用 --config-file 指定
 ├── manifests/                 # base、stateless、stateful、example/requirements
 ├── test/                      # unit、image、deploy、e2e（沿用 rdp-vscode 的 lib.sh 和 e2e client）
 └── docs/                      # architecture.md、install.md、user-guide.md、build-image.md、spike-notes.md、design/、superpowers/
@@ -318,4 +329,4 @@ rdp-jupyter/
 | 斷線的桌面佔用名額 | 新使用者被 `MAX_SESSIONS` 擋下 | 文件說明；`DISCONNECTED_TIMEOUT` 可以調短 |
 | JupyterLab Desktop 更新慢或停止維護 | Chromium 漏洞沒有修補 | 每月檢查；trivy 掃描；最壞情況改用 Firefox kiosk（spike 時評估過的 A 方案） |
 | PyPI 連不到 | 額外套件沒裝上 | 不影響 Pod 啟動；桌面跳出通知；可以設定 `PIP_INDEX_URL` |
-| Electron sandbox 在 tk8s 上不能用 | 程式起不來 | Task 0 確認；真的不行才加 `--no-sandbox`，並記錄原因 |
+| Electron sandbox 在 tk8s 上不能用 | 程式起不來 | Task 0 已確認不能用；改加 `--no-sandbox`，理由見第 6 節 |
