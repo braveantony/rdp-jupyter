@@ -9,7 +9,12 @@
 # would make the second JupyterLab Desktop exit at once. Per-user
 # JupyterLab settings (~/.jupyter) are shared. Closing JupyterLab Desktop ends
 # the session.
+# In attached mode (RDP_ATTACHED=1, set by attached-session.sh) the launcher
+# runs this script instead of sesman: the desktop, its window manager and its
+# input method belong to another container, so only JupyterLab Desktop is
+# started here.
 set -u
+RDP_ATTACHED=${RDP_ATTACHED:-0}
 
 # Container env does not reach sesman sessions; entrypoint.sh saves it here
 # shellcheck source=/dev/null
@@ -34,6 +39,15 @@ export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 # number does not collide. A directory that this account cannot remove (another
 # account created it in the sticky /tmp/sess) is refused, never reused.
 S="/tmp/sess/$dnum.$(id -u)"
+if [ "$RDP_ATTACHED" = 1 ] && [ -O "$S/xdg" ] && [ -s "$S/jlab.pid" ] &&
+   kill -0 "$(cat "$S/jlab.pid")" 2>/dev/null; then
+  # Asked again while JupyterLab Desktop is open on this desktop: start it with
+  # the same userData, so its single-instance lock hands over to the running
+  # one, instead of wiping the running session's dirs
+  export XDG_CONFIG_HOME="$S/xdg" XDG_RUNTIME_DIR="$S/run"
+  export JLAB_DESKTOP_CONFIG_DIR="$HOME/.jupyter"
+  exec /opt/JupyterLab/jupyterlab-desktop --no-sandbox --disable-gpu
+fi
 rm -rf "$S" 2>/dev/null
 umask 077
 if ! mkdir -m 700 "$S"; then
@@ -82,7 +96,13 @@ trap 'exit 143' TERM HUP INT
 # The kiosk config is root-owned and passed explicitly: XDG_CONFIG_HOME points
 # at $S/xdg, so openbox would never find ~/.config/openbox/rc.xml, and users
 # must not be able to edit kiosk mode away
-openbox --config-file /etc/rdp-jupyter/openbox-rc.xml &
+if [ "$RDP_ATTACHED" = 1 ]; then
+  # The desktop's input method is reached over X (XIM); GTK's own XIM module
+  # is in every image, the desktop's input method module is not
+  export GTK_IM_MODULE=xim XMODIFIERS=@im=fcitx
+else
+  openbox --config-file /etc/rdp-jupyter/openbox-rc.xml &
+fi
 /opt/rdp-jupyter/notify-extra.sh &
 
 # Run the Electron binary itself, with --no-sandbox (spec section 6: the pod's
@@ -93,4 +113,5 @@ openbox --config-file /etc/rdp-jupyter/openbox-rc.xml &
 # is not one already and setsid runs it in place: $! is its PID and PGID).
 setsid /opt/JupyterLab/jupyterlab-desktop --no-sandbox --disable-gpu &
 jlab_pid=$!
+echo "$jlab_pid" > "$S/jlab.pid"
 wait "$jlab_pid"

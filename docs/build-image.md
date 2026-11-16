@@ -97,6 +97,8 @@ bash test/image/smoke.test.sh "$IMG"
 bash test/image/notebook.test.sh "$IMG"
 bash test/image/isolation.test.sh "$IMG"
 bash test/image/session.test.sh "$IMG"
+bash test/unit/launcher.test.sh "$IMG"
+bash test/image/attached.test.sh "$IMG"
 ```
 
 每個測試最後一行都應該是 `N passed, 0 failed`。重點項目：

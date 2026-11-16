@@ -101,6 +101,7 @@ df.head()
 - [install.md](docs/install.md)：安裝手冊（快速安裝、Kustomize 多帳號與保留 home、單機 podman、從區網連線、移除）
 - [architecture.md](docs/architecture.md)：系統運作架構（連線流程、Pod 內各 process 的職責、安全邊界與威脅模型）
 - [user-guide.md](docs/user-guide.md)：使用手冊（連線登入、開 notebook、裝套件、斷線重連、多人使用、常見問題）
+- [attached-mode.md](docs/attached-mode.md)：附屬模式（不啟動 xrdp，把 JupyterLab Desktop 顯示在同一個 Pod 裡另一個 container 的桌面上）
 - [data-access.md](docs/data-access.md)：資料存取指南（PostgreSQL、MinIO／S3、Git 的範例，以及為什麼不能從本機拖檔案）
 - [build-image.md](docs/build-image.md)：建置手冊（從原始碼建置映像檔、測試，到升級 JupyterLab Desktop 的完整步驟）
 - [design/](docs/design/README.md)：設計決策、威脅模型、驗收標準與風險
@@ -114,6 +115,7 @@ df.head()
 | `USERS_FILE` | `/etc/rdp-jupyter/users` | 帳號檔案，一行一個 `帳號:密碼`；Kubernetes 上一定會由 Secret `rdp-jupyter-users-*` 掛載 |
 | `RDP_USER` | `bigred` | 沒有帳號檔案時的登入帳號（UID 1000）；Kubernetes 上一定有帳號檔案，用不到 |
 | `RDP_PASSWORD` | — | 沒有帳號檔案時的登入密碼，此時必填；Kubernetes 上用不到 |
+| `RDP_MODE` | `standalone` | `standalone`：這個 container 自己提供桌面（本文件說明的用法）。`attached`：不啟動 xrdp，見[附屬模式](docs/attached-mode.md)。其他值會讓 container 停止 |
 | `MAX_SESSIONS` | `3` | 可以同時存在的桌面數上限（所有帳號合計，含斷線中的桌面，見註 1） |
 | `DISCONNECTED_TIMEOUT` | `28800` | 斷線的桌面保留幾秒（預設 8 小時），逾時後清掉，裡面的 kernel 和未存檔內容都會消失。最短 60 秒（見註 2） |
 | `KERNEL_MEMORY_LIMIT` | `2Gi` | 每個 kernel 的記憶體硬上限（`RLIMIT_DATA`）；接受 `Mi`、`Gi` 單位，最小 `1Gi`（見註 3） |

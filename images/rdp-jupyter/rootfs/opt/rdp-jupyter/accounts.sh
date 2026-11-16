@@ -3,8 +3,12 @@
 # Accounts come from a users file ("user:password" per line; blank lines and
 # # comments ignored), or from RDP_USER (default bigred) / RDP_PASSWORD.
 # Each account gets a fixed UID by position (1000, 1001, ...) and a private home.
+#   accounts.sh [users file] [no-homes]
+# With no-homes, /home is left alone: in attached mode the desktop container
+# of the pod creates the homes, and this one only needs the same accounts.
 set -eu
 users_file=${1:-/etc/rdp-jupyter/users}
+homes=${2:-homes}
 
 accounts=$(mktemp)
 trap 'rm -f "$accounts"' EXIT
@@ -56,22 +60,25 @@ while IFS=: read -r user pass; do
     useradd -M -U -u "$uid" -s /bin/bash "$user"
   fi
   printf '%s:%s\n' "$user" "$pass" | chpasswd -c SHA512
+  uid=$((uid + 1))
+  [ "$homes" = homes ] || continue
 
   home=/home/$user
+  huid=$((uid - 1))
   if [ ! -d "$home" ]; then
     cp -a /etc/skel "$home"
     chown -R "$user:$user" "$home"
-  elif [ "$(stat -c %u "$home")" != "$uid" ]; then
+  elif [ "$(stat -c %u "$home")" != "$huid" ]; then
     # users file reordered on a kept /home: hand the home to the new UID
     chown -R "$user:$user" "$home"
   fi
   chmod 700 "$home"
-  uid=$((uid + 1))
 done < "$accounts"
 
 # Homes of accounts no longer in the file (kept on a PVC) would otherwise
 # belong to whichever account now has their old UID: lock them to root
 for home in /home/*; do
+  [ "$homes" = homes ] || break
   [ -d "$home" ] && [ ! -L "$home" ] || continue
   case " $users " in
     *" ${home#/home/} "*) ;;
