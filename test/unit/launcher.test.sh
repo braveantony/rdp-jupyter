@@ -19,7 +19,9 @@ scenario() {
     printf "alice:a\nbob:b\n" >/tmp/u; /opt/rdp-jupyter/accounts.sh /tmp/u >/dev/null || exit 90
     su alice -c "xauth -f ~/.Xauthority add :10 . 00112233445566778899aabbccddeeff" 2>/dev/null || exit 91
     install -d -m 1777 /tmp/rec
-    printf "%s\n" "#!/bin/sh" "{ id -un; echo \$DISPLAY; echo \$HOME; echo \$XAUTHORITY; pwd; } > /tmp/rec/\$(id -un)" > /tmp/stub
+    # The record appears under its final name only once it is complete: the
+    # scenarios read it as soon as it exists
+    printf "%s\n" "#!/bin/sh" "u=\$(id -un)" "{ echo \$u; echo \$DISPLAY; echo \$HOME; echo \$XAUTHORITY; pwd; } > /tmp/rec/.\$u.part && mv /tmp/rec/.\$u.part /tmp/rec/\$u" > /tmp/stub
     chmod 755 /tmp/stub
     install -d /run/t
     /opt/rdp-jupyter/launcher.pl /run/t/app.sock /tmp/stub >/tmp/launcher.log 2>&1 &
