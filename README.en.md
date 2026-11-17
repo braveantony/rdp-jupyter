@@ -99,6 +99,7 @@ The image is `ghcr.io/braveantony/rdp-jupyter:0.1`, about 1.1 GB unpacked, with 
 - [install.md](docs/install.md): installation (quick install, Kustomize with several accounts and a persistent home, single-host podman, LAN access, uninstall)
 - [architecture.md](docs/architecture.md): how it works (connection flow, what each process in the Pod does, security boundary and threat model)
 - [user-guide.md](docs/user-guide.md): user guide (logging in, opening notebooks, installing packages, reconnecting, concurrent use, troubleshooting)
+- [attached-mode.md](docs/attached-mode.md): attached mode (no xrdp; JupyterLab Desktop is shown on the desktop of another container in the same Pod)
 - [data-access.md](docs/data-access.md): data access (PostgreSQL, MinIO/S3 and Git examples, and why you cannot drag files from your own machine)
 - [build-image.md](docs/build-image.md): build guide (build the image from source, test it, and upgrade JupyterLab Desktop)
 - [design/](docs/design/README.md): design decisions, threat model, acceptance criteria and risks
@@ -112,6 +113,7 @@ First clone this repo as described in the [install guide](docs/install.md#kustom
 | `USERS_FILE` | `/etc/rdp-jupyter/users` | Account file, one `user:password` per line; on Kubernetes it is always mounted from Secret `rdp-jupyter-users-*` |
 | `RDP_USER` | `bigred` | Login account when there is no account file (UID 1000); on Kubernetes the file always exists, so it is not used |
 | `RDP_PASSWORD` | — | Its password, required in that case; not used on Kubernetes |
+| `RDP_MODE` | `standalone` | `standalone`: this container is the desktop (what this README describes). `attached`: no xrdp, see [attached mode](docs/attached-mode.md). Any other value stops the container |
 | `MAX_SESSIONS` | `3` | Maximum concurrent desktops, all accounts together, disconnected ones included (note 1) |
 | `DISCONNECTED_TIMEOUT` | `28800` | How long a disconnected desktop is kept (8 hours by default) before cleanup, which discards its kernels and unsaved content. Minimum 60 seconds (note 2) |
 | `KERNEL_MEMORY_LIMIT` | `2Gi` | Per-kernel memory hard limit (`RLIMIT_DATA`); accepts `Mi` and `Gi`, minimum `1Gi` (note 3) |

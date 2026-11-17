@@ -2,6 +2,8 @@
 
 適用映像檔：`ghcr.io/braveantony/rdp-jupyter:0.1`
 
+這份文件說明的是預設的獨立模式。不啟動 xrdp、把 JupyterLab Desktop 顯示在另一個 container 桌面上的用法，見[附屬模式](attached-mode.md)。
+
 本文件說明一次連線從用戶端到 kernel 的完整路徑、Pod 裡每個 process 的職責，以及帳號之間的安全邊界（威脅模型）。設計決策的理由見 [design/README.md](design/README.md)。
 
 ## 連線路徑
