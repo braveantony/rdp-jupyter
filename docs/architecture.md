@@ -1,6 +1,6 @@
 # rdp-jupyter 系統運作架構
 
-適用映像檔：`ghcr.io/braveantony/rdp-jupyter:0.1`
+適用映像檔：`ghcr.io/braveantony/rdp-jupyter:0.2`
 
 這份文件說明的是預設的獨立模式。不啟動 xrdp、把 JupyterLab Desktop 顯示在另一個 container 桌面上的用法，見[附屬模式](attached-mode.md)。
 

@@ -1,6 +1,6 @@
 # rdp-jupyter 安裝手冊
 
-適用映像檔：`ghcr.io/braveantony/rdp-jupyter:0.1`。先決條件見 [README](../README.md#先決條件)。
+適用映像檔：`ghcr.io/braveantony/rdp-jupyter:0.2`。先決條件見 [README](../README.md#先決條件)。
 
 ## 選擇安裝方式
 
@@ -105,7 +105,7 @@ kubectl apply -k manifests/example/requirements
   images:
   - name: ghcr.io/braveantony/rdp-jupyter
     newName: registry.example.com/rdp-jupyter
-    newTag: "0.1"
+    newTag: "0.2"
   ```
 
 - **改環境變數**：修改 `manifests/base/deployment.yaml` 的 `env`，再執行一次 `kubectl apply -k manifests/stateless`（或 `manifests/stateful`）。變數說明見 [README 的「環境變數」](../README.md#環境變數)。
@@ -117,7 +117,7 @@ kubectl apply -k manifests/example/requirements
 ```bash
 podman run -d --name rdp-jupyter -p 13391:3389 --shm-size 1g \
   -e RDP_PASSWORD=bigred \
-  ghcr.io/braveantony/rdp-jupyter:0.1
+  ghcr.io/braveantony/rdp-jupyter:0.2
 ```
 
 用遠端桌面連到 `<主機 IP>:13391`。`<主機 IP>` 是執行 podman 的那台主機的 IP；在同一台主機上連可以用 `localhost:13391`。帳號 `bigred`、密碼 `bigred`（`RDP_PASSWORD` 可以自己改）。

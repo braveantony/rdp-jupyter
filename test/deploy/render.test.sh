@@ -41,7 +41,7 @@ for o in stateless stateful example/requirements; do
   expect "$name" "limits 4 / 8Gi" 'ctr["resources"]["limits"] == {"cpu": "4", "memory": "8Gi"}'
   expect "$name" "requests 1 / 2Gi" 'ctr["resources"]["requests"] == {"cpu": "1", "memory": "2Gi"}'
   expect "$name" "/dev/shm is a 1Gi Memory emptyDir" 'vol_at("/dev/shm").get("emptyDir") == {"medium": "Memory", "sizeLimit": "1Gi"}'
-  expect "$name" "image is ghcr.io/braveantony/rdp-jupyter:0.1" \
+  expect "$name" "image is ghcr.io/braveantony/rdp-jupyter:0.2" \
     'ctr["image"] == "ghcr.io/braveantony/rdp-jupyter:" + open("VERSION").read().strip()'
   expect "$name" "named port rdp maps to containerPort 3389" \
     'ctr["ports"][0]["name"] == "rdp" and ctr["ports"][0]["containerPort"] == 3389'

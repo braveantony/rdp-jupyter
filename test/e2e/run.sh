@@ -3,7 +3,7 @@
 #   bash test/e2e/run.sh [stateless|requirements|stateful|pip-unreachable|kernel-limit|oom|all]
 #
 # Loads the local image onto every node with skopeo (the manifests reference
-# ghcr.io/braveantony/rdp-jupyter:0.1 with imagePullPolicy IfNotPresent, so the
+# ghcr.io/braveantony/rdp-jupyter:0.2 with imagePullPolicy IfNotPresent, so the
 # on-node copy is used), deploys the Kustomize manifests from Task 12, logs in
 # over RDP with the e2e client, and runs the six scenarios. Logs and screenshots
 # go to test/e2e/out/. Every scenario must PASS except `oom`, which is
@@ -22,7 +22,7 @@ cd "$(dirname "$0")/../.." || exit 1
 
 MODE=${1:-all}
 IMG=localhost/rdp-jupyter:dev
-REF=ghcr.io/braveantony/rdp-jupyter:0.1   # the tag the manifests expect on-node
+REF=ghcr.io/braveantony/rdp-jupyter:0.2   # the tag the manifests expect on-node
 CLIENT=localhost/rdp-jupyter-e2e-client:dev
 NS=rdp-jupyter
 DATA_NS=rdp-jupyter-e2e-data

@@ -94,7 +94,7 @@ df.head()
 
 ## 映像檔
 
-映像檔是 `ghcr.io/braveantony/rdp-jupyter:0.1`，解壓縮後約 1.1 GB，內含 JupyterLab Desktop 4.6.3-1、Python 3.13 的 venv（jupyterlab 4.6.3、ipykernel、pandas、matplotlib、繁中語言包、jupyter-resource-usage），以及 Noto CJK 和 DejaVu 字型。從原始碼建置和升級的步驟見 [build-image.md](docs/build-image.md)。
+映像檔是 `ghcr.io/braveantony/rdp-jupyter:0.2`，解壓縮後約 1.1 GB，內含 JupyterLab Desktop 4.6.3-1、Python 3.13 的 venv（jupyterlab 4.6.3、ipykernel、pandas、matplotlib、繁中語言包、jupyter-resource-usage），以及 Noto CJK 和 DejaVu 字型。從原始碼建置和升級的步驟見 [build-image.md](docs/build-image.md)。
 
 ## 文件
 

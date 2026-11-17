@@ -92,7 +92,7 @@ The [user guide](docs/user-guide.md) (Traditional Chinese) has the full instruct
 
 ## Image
 
-The image is `ghcr.io/braveantony/rdp-jupyter:0.1`, about 1.1 GB unpacked, with JupyterLab Desktop 4.6.3-1, a Python 3.13 venv (jupyterlab 4.6.3, ipykernel, pandas, matplotlib, the Traditional Chinese language pack and jupyter-resource-usage), and the Noto CJK and DejaVu fonts. See [build-image.md](docs/build-image.md) (Traditional Chinese) to build from source and upgrade.
+The image is `ghcr.io/braveantony/rdp-jupyter:0.2`, about 1.1 GB unpacked, with JupyterLab Desktop 4.6.3-1, a Python 3.13 venv (jupyterlab 4.6.3, ipykernel, pandas, matplotlib, the Traditional Chinese language pack and jupyter-resource-usage), and the Noto CJK and DejaVu fonts. See [build-image.md](docs/build-image.md) (Traditional Chinese) to build from source and upgrade.
 
 ## Documentation (Traditional Chinese)
 

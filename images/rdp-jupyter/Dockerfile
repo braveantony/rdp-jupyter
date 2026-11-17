@@ -96,6 +96,9 @@ LABEL org.opencontainers.image.source="https://github.com/braveantony/rdp-jupyte
 #   Xorg's glamor and glx modules) only dlopens them and falls back to software.
 #   Consequence: apt sees broken dependencies in the final image, so never
 #   apt-get install on top of it (build a new image instead).
+# - apt, libapt-pkg7.0 and zlib1g come from the pinned base image; they are
+#   upgraded here because Debian has published security fixes for them
+#   (CVE-2026-109518, CVE-2026-85091) that the pinned base does not carry yet.
 # - locale-gen runs here, and the locale sources (/usr/share/i18n) go once the
 #   archive is built. C.UTF-8 is built in; startwm.sh picks zh_TW.UTF-8 or
 #   C.UTF-8 per JUPYTER_LOCALE.
@@ -115,6 +118,8 @@ RUN printf '%s\n' \
       fonts-noto-cjk fonts-dejavu-core locales tini openssl ca-certificates python3 \
       libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 xdg-utils libatspi2.0-0 \
       libuuid1 libsecret-1-0 libasound2t64 \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --only-upgrade \
+      apt libapt-pkg7.0 zlib1g \
  && dpkg --purge --force-depends libgl1-mesa-dri mesa-libgallium libllvm19 libz3-4 \
       libegl-mesa0 libglx-mesa0 \
  && sed -i 's/^# *zh_TW.UTF-8 UTF-8/zh_TW.UTF-8 UTF-8/' /etc/locale.gen \

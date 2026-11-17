@@ -1,6 +1,6 @@
 # JupyterLab 遠端桌面使用手冊
 
-適用映像檔：`ghcr.io/braveantony/rdp-jupyter:0.1`。安裝方式見 [README](../README.md#快速開始)。
+適用映像檔：`ghcr.io/braveantony/rdp-jupyter:0.2`。安裝方式見 [README](../README.md#快速開始)。
 
 用 Windows 內建的「遠端桌面連線」登入後，畫面上只有一個全螢幕的 JupyterLab Desktop。開一個 notebook 就能寫 Python，kernel 在叢集的 Pod 裡執行，可以直接連叢集內的資料庫和物件儲存做分析。
 
