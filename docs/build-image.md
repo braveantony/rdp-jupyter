@@ -1,6 +1,6 @@
 # rdp-jupyter 映像檔建置手冊
 
-本文件從原始碼做出 `ghcr.io/braveantony/rdp-jupyter:0.1`，跑過測試，載入 tk8s 的節點並部署，最後推到 ghcr.io。**由上到下依序複製每個指令區塊貼到終端機執行。** 需要在 repo 目錄執行的區塊，開頭都會 `cd ~/rdp-jupyter`，中途換終端機也能接著貼。
+本文件從原始碼做出 `ghcr.io/braveantony/rdp-jupyter:0.2`，跑過測試，載入 tk8s 的節點並部署，最後推到 ghcr.io。**由上到下依序複製每個指令區塊貼到終端機執行。** 需要在 repo 目錄執行的區塊，開頭都會 `cd ~/rdp-jupyter`，中途換終端機也能接著貼。
 
 ## 這個映像檔做什麼
 
@@ -44,7 +44,7 @@ ls
 
 ```text
 rdp-jupyter/
-├── VERSION                          # 目前版本（0.1）；test/build.sh 會把它當 build arg 傳進去
+├── VERSION                          # 目前版本（0.2）；test/build.sh 會把它當 build arg 傳進去
 ├── install.sh                       # 快速開始的 curl | bash 安裝腳本
 ├── images/rdp-jupyter/
 │   ├── Dockerfile                   # 版本號在開頭的 ARG
@@ -63,7 +63,7 @@ rdp-jupyter/
 
 ```bash
 cd ~/rdp-jupyter
-bash test/build.sh ghcr.io/braveantony/rdp-jupyter:0.1
+bash test/build.sh ghcr.io/braveantony/rdp-jupyter:0.2
 podman image ls ghcr.io/braveantony/rdp-jupyter
 ```
 
@@ -81,7 +81,7 @@ podman image ls ghcr.io/braveantony/rdp-jupyter
 
 ```bash
 cd ~/rdp-jupyter
-IMG=ghcr.io/braveantony/rdp-jupyter:0.1
+IMG=ghcr.io/braveantony/rdp-jupyter:0.2
 bash test/unit/accounts.test.sh
 bash test/unit/session-env.test.sh
 bash test/unit/server-env.test.sh
@@ -122,7 +122,7 @@ bash test/deploy/lint.test.sh
 
 ```bash
 cd ~/rdp-jupyter
-bash test/image/supply-chain.test.sh ghcr.io/braveantony/rdp-jupyter:0.1
+bash test/image/supply-chain.test.sh ghcr.io/braveantony/rdp-jupyter:0.2
 ```
 
 用固定版本的 syft 產生 SBOM、trivy 掃描漏洞，結果寫到 `test/e2e/out/`（`sbom.spdx.json`、`trivy.txt`）。High／Critical 漏洞要不就修掉，要不就在 [docs/ops/2026-11-04-accepted-risks.md](ops/2026-11-04-accepted-risks.md) 說明理由，並在 `.trivyignore` 列出。目前已接受的風險是 JupyterLab 剪貼簿 XSS（CVE-2026-102831）：上游的 JupyterLab Desktop 還沒有修好的發行版，而弱點程式打包在 Electron bundle 裡，單升 pip 套件修不了實際 UI；等 JupyterLab Desktop 出 `4.6.4-1` 以後要重新評估。
@@ -133,12 +133,12 @@ tk8s 的節點是 podman container，映像檔要直接載入節點的 container
 
 ```bash
 cd ~/rdp-jupyter
-podman save -o /tmp/rdp-jupyter.tar ghcr.io/braveantony/rdp-jupyter:0.1
+podman save -o /tmp/rdp-jupyter.tar ghcr.io/braveantony/rdp-jupyter:0.2
 for n in tk8s-control-plane-1 tk8s-worker-1 tk8s-worker-2; do
   st=/var/lib/containers/storage/volumes/$n-var/_data/lib/containers/storage
   sudo test -d "$st/overlay-images" || { echo "找不到 $n 的儲存區，用 sudo podman ps 確認節點名稱"; break; }
   sudo skopeo copy docker-archive:/tmp/rdp-jupyter.tar \
-    "containers-storage:[overlay@$st+/run/rdp-jupyter-load-$n]ghcr.io/braveantony/rdp-jupyter:0.1"
+    "containers-storage:[overlay@$st+/run/rdp-jupyter-load-$n]ghcr.io/braveantony/rdp-jupyter:0.2"
 done
 rm -f /tmp/rdp-jupyter.tar
 ```
@@ -161,7 +161,7 @@ Windows「遠端桌面連線」填 `<主機 IP>:3391`（例如 `192.168.11.64:33
 
 ```bash
 podman login ghcr.io -u braveantony      # 密碼貼上 PAT
-podman push ghcr.io/braveantony/rdp-jupyter:0.1
+podman push ghcr.io/braveantony/rdp-jupyter:0.2
 ```
 
 Dockerfile 裡的 `org.opencontainers.image.source` label 會讓 ghcr.io 自動把 package 連到 repo。第一次推送後，到 GitHub 的 **Packages → rdp-jupyter → Package settings → Change visibility**，設為 Public，別人才拉得到。
@@ -194,7 +194,7 @@ ARG JLD_SHA256=447210fe8128ab4fa2d792aec31fbb8e080c4abdacd74f87666146fd4131378a
 4. **逐條重新確認 spec 的上游行為 F1～F12**（見 [docs/superpowers/specs/2026-11-03-rdp-jupyter-design.md](superpowers/specs/2026-11-03-rdp-jupyter-design.md) 第 4 節）：server 啟動方式、`JUPYTER_TOKEN`／`JUPYTER_TOKEN_FILE` 的讀取、`userData` 路徑與 single-instance 鎖、`settings.json` 的欄位、kernel culling 參數、xrdp `Policy=Default` 的接回行為等。這些是設計的前提，上游改掉任何一條都要相應調整。
 5. **跑完全部測試**（Step 3）和完整驗收（`test/e2e/run.sh all`）。
 6. 升級供應鏈：重跑 Step 4 的掃描，處理新出現的 High／Critical，並視情況更新 `.trivyignore` 和 [accepted-risks 紀錄](ops/2026-11-04-accepted-risks.md)。
-7. 發佈新版本：改 `VERSION` 和 `manifests/base/deployment.yaml` 的 `image:` tag，把本文件 Step 2～6 指令裡的 `:0.1` 換成新版本號，重建、載入、推送。
+7. 發佈新版本：改 `VERSION` 和 `manifests/base/deployment.yaml` 的 `image:` tag，把本文件 Step 2～6 指令裡的 `:0.2` 換成新版本號，重建、載入、推送。
 
 ## token patch（D5）
 

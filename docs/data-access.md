@@ -1,6 +1,6 @@
 # 資料存取指南
 
-適用映像檔：`ghcr.io/braveantony/rdp-jupyter:0.1`。
+適用映像檔：`ghcr.io/braveantony/rdp-jupyter:0.2`。
 
 notebook 的 kernel 在叢集的 Pod 裡執行，所以可以用 `<service>.<namespace>`（例如 `postgres.default`）直接連叢集內的資料庫、物件儲存等服務，資料不必流出叢集。本文件給三種常見來源的範例，以及為什麼不能從自己的電腦直接拖檔案進來。
 

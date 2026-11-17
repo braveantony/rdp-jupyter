@@ -87,3 +87,31 @@ CVE-2026-93521   # xserver-xorg-core/xserver-common: affected, no fix
 CVE-2026-93523   # xserver-xorg-core/xserver-common: affected, no fix
 CVE-2026-94286   # libxtst6: affected, no fix
 CVE-2026-9538    # perl-base: Debian fix_deferred, no fixed version
+
+# Reviewed on 2026-11-17 for 0.2, against the trivy DB of that date. Same rule as
+# above: Debian status "affected" with no fixed version published. (The three
+# findings that did have a fix were fixed instead: apt and zlib1g are upgraded in
+# the Dockerfile, soupsieve in requirements.lock.)
+CVE-2026-107364  # krb5 (libgssapi-krb5-2/libk5crypto3/libkrb5-3/libkrb5support0): affected, no fix
+CVE-2026-112315  # krb5 (same four packages): affected, no fix
+CVE-2026-112316  # krb5 (same four packages): affected, no fix
+CVE-2026-112317  # krb5 (same four packages): affected, no fix
+CVE-2026-112318  # krb5 (same four packages): affected, no fix
+CVE-2026-112319  # krb5 (same four packages): affected, no fix
+CVE-2026-112320  # krb5 (same four packages): affected, no fix
+CVE-2026-112321  # krb5 (same four packages): affected, no fix
+CVE-2026-112322  # krb5 (same four packages): affected, no fix
+CVE-2026-112323  # krb5 (same four packages): affected, no fix
+CVE-2026-118380  # krb5 (same four packages): affected, no fix
+CVE-2026-119079  # krb5 (same four packages): affected, no fix
+CVE-2026-71199   # krb5 (same four packages): affected, no fix
+CVE-2026-71200   # krb5 (same four packages): affected, no fix
+CVE-2026-115506  # libexpat1: affected, no fix
+CVE-2026-119374  # libsqlite3-0: affected, no fix
+CVE-2026-119379  # libsqlite3-0: affected, no fix
+CVE-2026-109091  # xserver-xorg-core/xserver-common: affected, no fix
+CVE-2026-109092  # xserver-xorg-core/xserver-common: affected, no fix
+CVE-2026-109093  # xserver-xorg-core/xserver-common: affected, no fix
+CVE-2026-109095  # xserver-xorg-core/xserver-common: affected, no fix
+CVE-2026-109096  # xserver-xorg-core/xserver-common: affected, no fix
+CVE-2026-109903  # xserver-xorg-core/xserver-common: affected, no fix

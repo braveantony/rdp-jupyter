@@ -24,7 +24,7 @@ spec:
                 operator: DoesNotExist
       containers:
       - name: desktop
-        image: ghcr.io/braveantony/rdp-jupyter:0.1
+        image: ghcr.io/braveantony/rdp-jupyter:0.2
         imagePullPolicy: IfNotPresent
         # Runs as root: xrdp-sesman needs PAM and setuid to the login accounts.
         # Xorg, openbox and JupyterLab Desktop run as each account.
